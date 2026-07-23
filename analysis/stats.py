@@ -7,10 +7,61 @@ config global for its `rounds`/`seed` defaults - callers pass them explicitly.
 
 from __future__ import annotations
 
-from typing import Callable, List, Optional
+from typing import Callable, Dict, List, Optional, Sequence
 
 import numpy as np
 import pandas as pd
+
+
+def fit_ols(df: pd.DataFrame, feature_cols: Sequence[str], target_col: str) -> Dict:
+    """
+    Ordinary least squares with standard errors, t-stats, and p-values (closed-form -
+    no statsmodels dependency). Rows with any NaN in the feature/target columns are
+    dropped. Intended for small, low-dimensional regressions (e.g. testing whether one
+    predictor's effect on a target shrinks once a second predictor is added -
+    a mediation-style check), not as a general-purpose modeling tool.
+
+    Returns a dict with:
+      - "coef": {"intercept": float, <feature>: float, ...}
+      - "std_err", "t_stat", "p_value": same keys as "coef" (excluding "intercept"
+        from p_value's practical use is not excluded - intercept gets inference too)
+      - "r_squared": float
+      - "n": int (rows used)
+    """
+    from scipy import stats as _scipy_stats
+
+    clean = df[list(feature_cols) + [target_col]].dropna()
+    n = len(clean)
+    k = len(feature_cols)
+    if n <= k + 1:
+        raise ValueError(f"Not enough rows ({n}) for {k} feature(s) plus intercept")
+
+    X = np.column_stack([np.ones(n), clean[list(feature_cols)].to_numpy(dtype=float)])
+    y = clean[target_col].to_numpy(dtype=float)
+
+    beta, _, _, _ = np.linalg.lstsq(X, y, rcond=None)
+    residuals = y - X @ beta
+    dof = n - (k + 1)
+    sigma_sq = float((residuals @ residuals) / dof) if dof > 0 else np.nan
+    xtx_inv = np.linalg.inv(X.T @ X)
+    se = np.sqrt(np.diag(xtx_inv) * sigma_sq)
+    t_stats = beta / se
+    p_values = 2 * _scipy_stats.t.sf(np.abs(t_stats), df=dof) if dof > 0 else np.full_like(beta, np.nan)
+
+    names = ["intercept"] + list(feature_cols)
+    y_hat = X @ beta
+    ss_res = float(((y - y_hat) ** 2).sum())
+    ss_tot = float(((y - y.mean()) ** 2).sum())
+    r_squared = 1.0 - ss_res / ss_tot if ss_tot > 0 else np.nan
+
+    return {
+        "coef": dict(zip(names, beta.tolist())),
+        "std_err": dict(zip(names, se.tolist())),
+        "t_stat": dict(zip(names, t_stats.tolist())),
+        "p_value": dict(zip(names, p_values.tolist())),
+        "r_squared": r_squared,
+        "n": n,
+    }
 
 
 def weighted_mean(values, weights) -> Optional[float]:

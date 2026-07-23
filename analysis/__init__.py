@@ -23,6 +23,7 @@ from analysis.stats import (
     summarize_binned_metric,
     middle_vs_tail_summary,
     add_quantile_trend,
+    fit_ols,
 )
 
 __all__ = [
@@ -44,4 +45,5 @@ __all__ = [
     "summarize_binned_metric",
     "middle_vs_tail_summary",
     "add_quantile_trend",
+    "fit_ols",
 ]
