@@ -23,7 +23,10 @@ This repo has a single branch, `main`.
 - Python venv at `.venv/` (Python 3.10) — activate with `.venv\Scripts\activate` on Windows.
 - Dependencies: `pip install -r requirements.txt` (torch, transformers, sentence-transformers, langchain, faiss-cpu, rouge, evaluate, sparsembed, python-dotenv, accelerate, plus matplotlib/scipy/scikit-learn/ipykernel for the analysis notebooks). Registered as a Jupyter kernel named `fair-rag` (`Fair-RAG (.venv)`) via `python -m ipykernel install --user --name fair-rag --display-name "Fair-RAG (.venv)"` — select that kernel when opening the notebooks. Note: installing the full `jupyter`/`jupyterlab` meta-package can fail here with a Windows long-path error (this project sits under a deep path) — `ipykernel` alone is sufficient to run notebooks from an existing Jupyter/VS Code frontend.
 - No test suite, linter, or CI config exists in this repo — there is nothing to run for "tests"/"lint" beyond executing the scripts/notebooks themselves.
-- GPU is optional; `PromptLM` (`generator/lm.py`) auto-selects CUDA → MPS → CPU. Multi-GPU inference goes through `accelerate` and `generator/lm_distributed_inference.py`.
+- **GPU/CUDA**: `pip install -r requirements.txt` installs plain `torch==2.1.2`, which resolves to a CPU-only wheel on Windows unless you point pip at PyTorch's CUDA index. To use an NVIDIA GPU, after the normal install run:
+  `pip install torch==2.1.2 torchvision==0.16.2 --index-url https://download.pytorch.org/whl/cu121`
+  (cu121 wheels work with any driver reporting CUDA 12.x, e.g. driver-reported "CUDA Version: 12.3" — cu121 is backward compatible with it; check your driver's CUDA version via `nvidia-smi`). Verify with `python -c "import torch; print(torch.cuda.is_available())"`. `torchvision` isn't actually imported anywhere in this codebase — it only comes along because it's commonly pinned next to `torch`; safe to skip if you want a minimal install.
+- GPU is optional either way; `PromptLM` (`generator/lm.py`) auto-selects CUDA → MPS → CPU with no code changes needed. Multi-GPU inference goes through `accelerate` and `generator/lm_distributed_inference.py`.
 
 ## Data pipeline (one-time setup, in order)
 
