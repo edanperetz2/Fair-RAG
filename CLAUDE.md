@@ -10,7 +10,13 @@ All active work goes through **`framework/`** — the config-driven, resumable e
 
 The paper authors' original single-setting driver scripts (`experiment.py`, `normalize_eu.py`) live under **`legacy/`** — fully superseded by `framework.ExperimentRunner`/`BatchExperimentRunner`, kept only for reference (see `legacy/README.md`). Don't build new work on them. `legacy/` also holds two recovered-but-never-integrated artifacts from an earlier, abandoned approach (`mlx_generator_reference.py`, `trec_rag_2024_dataset_overview.ipynb`) — see `docs/PROJECT_STATUS.md` for that history.
 
-Day-to-day experimentation happens in the notebooks at the repo root (`fair_rag_experiment.ipynb`, `fair_rag_diversity_story.ipynb`, `fair_rag_stats_exploration.ipynb`), which import from `framework/`. This repo has a single branch, `main`.
+Day-to-day work happens in three notebooks at the repo root, following a strict separation:
+
+- **`fair_rag_experiment.ipynb`** — pure infrastructure. Only responsible for building `RunConfig`s and calling `ExperimentRunner`/`BatchExperimentRunner`. Should never contain post-hoc analysis of completed runs — if you find yourself adding a cell that reads `experiment_runs/` to compute/plot something rather than to run something, it belongs in one of the other two notebooks instead.
+- **`fair_rag_diversity_story.ipynb`** / **`fair_rag_stats_exploration.ipynb`** — the "theses": read-only research narratives over already-completed runs. Must never call `ExperimentRunner`/`BatchExperimentRunner` — if a hypothesis needs a specific setting that isn't run yet, add it to `fair_rag_experiment.ipynb`, not here.
+- **`analysis/`** — shared plotting/normalization/binning/labeling/run-discovery helpers used by the two thesis notebooks (and, sparingly, by `fair_rag_experiment.ipynb`'s own "quick look at what I just ran" plots). Builds on top of `framework/cross_run_analysis.py` rather than duplicating it. See its own section below. Before adding a new helper function to a notebook, check whether it's generic enough to belong here instead — this package exists specifically because near-identical label-formatting/normalization/binning functions were independently reimplemented 5-8 times across the three notebooks before being consolidated (see `docs/PROJECT_STATUS.md` for that history).
+
+This repo has a single branch, `main`.
 
 ## Environment
 
@@ -82,7 +88,18 @@ On resume (`cfg.resume=True`), `ExperimentRunner` reconstructs completed-work se
 
 ### Cross-run analysis (`framework/cross_run_analysis.py`)
 
-Loads and flattens `experiment_runs/*/manifest.json` + `macro_summary.json`/`query_summary.jsonl` into comparison rows (optionally as a pandas DataFrame) — this is what the analysis notebooks build on.
+Loads and flattens `experiment_runs/*/manifest.json` + `macro_summary.json`/`query_summary.jsonl` into comparison rows (optionally as a pandas DataFrame): `list_run_dirs`, `build_macro_comparison_rows`, `build_query_metric_rows`, `maybe_to_dataframe`. This is the foundation the `analysis/` package and both thesis notebooks build on — don't duplicate it.
+
+## Shared analysis toolkit (`analysis/`)
+
+Generic, notebook-agnostic helpers for analyzing *already-completed* runs — not for running experiments (that's `framework/`'s job). Each module is single-purpose:
+
+- **`analysis/loading.py`** — `find_completed_run_dirs(...)` (filters completed runs by dataset/generator/ranker/top_k/lamp_num/rerank_method against each run's manifest; note it does *not* special-case the `"gold"` ranker's deterministic-only convention — callers needing that filter it at the call site) and `existing_setting_ids(...)`; also `load_relevance_mapping(lamp_num, generator_name)` / `load_retrieval_scores(ranker, lamp_num, generator_name)` for measurement-input loading.
+- **`analysis/normalization.py`** — `normalize_query_rows(df, group_cols=...)`: per-query max-normalization of EU/EE-R/ILD to comparable ranges (LaMP-3's MAE metric flipped to higher-is-better first); `safe_div` returns `None`/NaN on a zero/invalid denominator (a deliberate choice — never fabricates a value); `macro_from_normalized_query_rows(df)` aggregates normalized per-query rows to one row per run (to include a reference run like gold in the normalization *bounds* without it appearing in the output, pass it into `normalize_query_rows` and filter it out of the result afterward).
+- **`analysis/binning.py`** — `pool_delta_by_bin(df, metric_col=..., bin_edges=..., bin_labels=..., baseline_method=... | baseline_filter=..., comparison_methods=..., group_by=...)`: the canonical "bin queries by a metric, report pooled utility delta vs. a baseline" function. Handles both "every method vs. one baseline" and "one method vs. a specifically-filtered baseline" (e.g. "MMR at exactly λ=0.65") by varying arguments — don't write a new one-off variant of this, extend the call site instead. Only handles *fixed* bin edges; adaptive/quantile-derived bin edges per group (see `fair_rag_diversity_story.ipynb`'s `build_ild_bin_analysis_v6`) are a genuinely different approach and intentionally not folded into this function.
+- **`analysis/labels.py`** — `format_rerank_label(row, ranker_prefix=False)`: the one label formatter for deterministic/mmr/pl/pl_mmr settings.
+- **`analysis/plotting.py`** — `plot_metric_scatter_panels(rows_df, panels=[(x,y,xlabel,ylabel), ...], label_fn=... | label_col=...)`: the canonical 3-panel (or N-panel) scatter plotter; `format_macro_table_for_display(df)` for display formatting (keeps columns raw/separate — no compact "recipe" string column).
+- **`analysis/stats.py`** — `bootstrap_ci`, `assign_quantile_bins`, `summarize_binned_metric`, `middle_vs_tail_summary`, `add_quantile_trend`, `weighted_mean`. `bootstrap_ci`/`summarize_binned_metric` take `rounds`/`seed` as explicit parameters (no notebook-global config fallback) — always pass them explicitly if you need reproducibility across a session.
 
 ## Dataset abstraction (`framework/dataset.py`)
 
