@@ -9,7 +9,7 @@ CUR_DIR_PATH = os.path.dirname(os.path.realpath(__file__))
 PARENT_DIR_PATH = os.path.dirname(CUR_DIR_PATH)
 sys.path.append(PARENT_DIR_PATH)
 
-from eval.lamp_metrics import get_metric_fn_accuracy, get_metric_fn_rouge_L
+from utility_metrics.lamp_metrics import get_metric_fn_accuracy, get_metric_fn_rouge_L
 
 
 def load_df(fp: str) -> pd.DataFrame:

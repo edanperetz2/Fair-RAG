@@ -6,16 +6,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Official code for *"Towards Fair RAG: On the Impact of Fair Ranking in Retrieval-Augmented Generation"* (arXiv:2409.11598). It evaluates RAG systems built on the LaMP benchmark under different (stochastic and deterministic) rankers, measuring the tradeoff between item-side fairness (Expected Exposure) and generation quality (Expected Utility), plus intra-list diversity.
 
-There are two coexisting pipelines in this repo:
+All active work goes through **`framework/`** — the config-driven, resumable experimentation framework (JSONL-based artifacts). Data/retrieval precomputation still goes through the original paper's top-level scripts (`retrieval/rank_profiles.py`, `retrieval/gold_retriever.py`, `utility_labels/*.py`), which `framework/` consumes as inputs.
 
-1. **`framework/`** — the current, actively-developed experimentation framework (config-driven, resumable, JSONL-based artifacts). Prefer this for any new work.
-2. **Top-level scripts** (`experiment.py`, `normalize_eu.py`, `retrieval/rank_profiles.py`, `retrieval/gold_retriever.py`, `utility_labels/*.py`) — the original pipeline from the paper. Still used for one-time data/retrieval precomputation steps that `framework/` consumes; `experiment.py` itself is superseded by `framework.ExperimentRunner` but kept for reference/reproducibility.
+The paper authors' original single-setting driver scripts (`experiment.py`, `normalize_eu.py`) live under **`legacy/`** — fully superseded by `framework.ExperimentRunner`/`BatchExperimentRunner`, kept only for reference (see `legacy/README.md`). Don't build new work on them. `legacy/` also holds two recovered-but-never-integrated artifacts from an earlier, abandoned approach (`mlx_generator_reference.py`, `trec_rag_2024_dataset_overview.ipynb`) — see `PROJECT_STATUS.md` for that history.
 
-Day-to-day experimentation happens in the notebooks at the repo root (`fair_rag_experiment.ipynb`, `fair_rag_diversity_story.ipynb`, `fair_rag_stats_exploration.ipynb`), which import from `framework/`.
+Day-to-day experimentation happens in the notebooks at the repo root (`fair_rag_experiment.ipynb`, `fair_rag_diversity_story.ipynb`, `fair_rag_stats_exploration.ipynb`), which import from `framework/`. This repo has a single branch, `main`.
 
 ## Environment
 
-- Python venv(s) at `venv/` and `.venv/` are checked into the working tree (not committed logic, just local envs) — activate one before running anything: `venv\Scripts\activate` (or `.venv\Scripts\activate`) on Windows.
+- Python venv at `.venv/` — activate with `.venv\Scripts\activate` on Windows.
 - Dependencies: `pip install -r requirements.txt` (torch, transformers, sentence-transformers, langchain, faiss-cpu, rouge, evaluate, sparsembed, python-dotenv).
 - No test suite, linter, or CI config exists in this repo — there is nothing to run for "tests"/"lint" beyond executing the scripts/notebooks themselves.
 - GPU is optional; `PromptLM` (`generator/lm.py`) auto-selects CUDA → MPS → CPU. Multi-GPU inference goes through `accelerate` and `generator/lm_distributed_inference.py`.
@@ -49,10 +48,10 @@ batch_output = batch_runner.run_all()   # sequential sweep across settings
 
 `fair_rag_experiment.ipynb` is the canonical way this is invoked — it exposes toggles for dataset/ranker/rerank method and switches between `RUN_MODE = "single"` vs `"batch"`. Edit the toggle cell and re-run; in batch mode, `BATCH_REUSE_POLICY = "smart"` auto-skips already-completed settings and auto-resumes interrupted ones.
 
-The legacy equivalent (single setting, no resume/reuse machinery) is:
+The legacy equivalent (single setting, no resume/reuse machinery, kept only for reference — see `legacy/README.md`) is:
 ```
-python experiment.py --retriever_name splade --generator_name flanT5XXL --lamp_num 4 --alpha 2
-python normalize_eu.py --retriever_name splade --generator_name flanT5XXL --lamp_num 4 --alpha 2
+python legacy/experiment.py --retriever_name splade --generator_name flanT5XXL --lamp_num 4 --alpha 2
+python legacy/normalize_eu.py --retriever_name splade --generator_name flanT5XXL --lamp_num 4 --alpha 2
 ```
 
 ### `setting_id` — the canonical experiment key
@@ -69,7 +68,7 @@ python normalize_eu.py --retriever_name splade --generator_name flanT5XXL --lamp
 ### Metrics (`framework/metrics.py`)
 
 - **EE-D / EE-R / EE-L** (Expected Exposure disparity/relevance/difference) — computed once per query across *all* ranked lists together via the vendored `expected_exposure/expeval.py` (modified from [diazf/expeval](https://github.com/diazf/expeval)). Requires materializing temporary TREC-format `trec_top_files/`/`trec_rel_files/` per query (see `utils.make_trec_top_file_for_single_qid` / `make_trec_rel_file_for_single_qid`) — these are cleaned up automatically unless `remove_temp=False`.
-- **EU** (Expected Utility) — per-(qid, list_id) task metric from `eval/lamp_metrics.py`, selected by LaMP task number: accuracy (LaMP 1–2), MAE (LaMP 3, lower-is-better), ROUGE-L (LaMP 4–7).
+- **EU** (Expected Utility) — per-(qid, list_id) task metric from `utility_metrics/lamp_metrics.py`, selected by LaMP task number: accuracy (LaMP 1–2), MAE (LaMP 3, lower-is-better), ROUGE-L (LaMP 4–7).
 - **Diversity** — ILD-Jaccard (1 − mean pairwise Jaccard similarity of profile text) and raw mean Jaccard, computed per list.
 
 ### Artifacts and resumability (`framework/artifacts.py`)
@@ -93,5 +92,5 @@ Loads and flattens `experiment_runs/*/manifest.json` + `macro_summary.json`/`que
 
 - **`list_id` format** encodes method + sample index and is relied on elsewhere (resume matching, EE rebuilding): PL → `{qid}__pl_s{idx:03d}`, PL-MMR → `{qid}__pl_mmr_s{idx:03d}`, MMR → `{qid}__mmr`, deterministic → `{qid}__det`. Builder functions live in `framework/config.py`.
 - Retrieval scores are normalized to `[1, 2]` before PL temperature exponentiation (`framework/retrieval.py::normalize_scores_for_pl`), except the `"gold"` oracle ranker, whose binary `{0,1}` scores are amplified to `{0,10}` so `pl_alpha` still has visible effect at low values.
-- All module-level scripts under `framework/`, `generator/`, `retrieval/` prepend the repo root to `sys.path` via `ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))` — preserve this pattern if you add new modules that need root-relative imports (`data.*`, `eval.*`, `utils`, `expected_exposure.*`).
+- All module-level scripts under `framework/`, `generator/`, `retrieval/` prepend the repo root to `sys.path` via `ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))` — preserve this pattern if you add new modules that need root-relative imports (`data.*`, `utility_metrics.*`, `utils`, `expected_exposure.*`).
 - `PromptLM` caches loaded HF models process-wide in `_MODEL_CACHE` keyed by `(model_name, sorted(model_kwargs))` — instantiating multiple `PromptLM`s with the same model reuses the same weights in memory.

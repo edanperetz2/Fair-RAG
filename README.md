@@ -12,7 +12,14 @@ Despite retrieval being a core component of RAG, much of the research in this ar
 ## Data
 We provide a filtered version of the LaMP dataset for fairness evaluation, along with item-level utility labels as detailed in the paper. The dataset includes three distinct utility-based test collections, each constructed based on a different generator model: Flan-T5 Small, Flan-T5 Base, and Flan-T5 XXL.
 
-The data has been filtered and annotated based on the [LaMP dataset](https://github.com/LaMP-Benchmark/LaMP/tree/main/LaMP), which is available under the `CC-BY-NC-SA-4.0` license. All provided data can be found in the `data/` directory of this repository.
+The data has been filtered and annotated based on the [LaMP dataset](https://github.com/LaMP-Benchmark/LaMP/tree/main/LaMP), which is available under the `CC-BY-NC-SA-4.0` license. All provided data can be found in the `data/` directory of this repository, as `lamp_utility_labels_{generator}.zip` archives — unzip before use.
+
+These zip archives are **not tracked in this repository's git history** (only the unzipped `.json`/`.tsv` files they contain are used at runtime, and those are also untracked/gitignored, since they're large derived data). If you're setting this repo up fresh and don't already have the zips on disk, pull them from the original paper's repository, which is configured as the read-only `upstream` remote:
+```
+git fetch upstream
+git show upstream/main:data/lamp_utility_labels_flanT5Small.zip > data/lamp_utility_labels_flanT5Small.zip
+```
+(repeat for `flanT5Base`/`flanT5XXL` as needed).
 
 ### Data Generation Pipeline
 1. Place the [LaMP dataset](https://github.com/LaMP-Benchmark/LaMP/tree/main/LaMP) under `data/lamp`
@@ -39,15 +46,17 @@ Unzip the new test collections which can be found under `data/`
     - the results will be used when normalizing the expected utility
     - e.g., `python retrieval/gold_retriever.py --generator_name flanT5XXL --lamp_num 4`
 
-### Stochastic Retrieval, Generation, and Measurement
-1. Run main experiments
-    - e.g., (for single GPU) `python experiment.py --retriever_name splade --generator_name flanT5XXL --lamp_num 4 --alpha 2`
-    - e.g., (for multiple GPU) 
-    `accelerate launch --gpu_ids 0,1 --num_processes 1 --main_process_port $PORT experiment.py --multi_gpus --retriever_name splade --generator_name flanT5XXL --lamp_num 7 --alpha 1`
-    - for RAG with an oracle retriever (retriever alias is 'gold') you only need to run with one alpha (alpha=8). Need to save the results from the oracle retriever, as it will be used for normalization of metrics.
+### Running experiments
 
-2. Normalize metric values (EE-D, EE-R, EU)
-    - e.g., `python normalize_eu.py --retriever_name splade --generator_name flanT5XXL --lamp_num 4 --alpha 2`
+Experiments run through the `framework` package (config-driven, resumable), driven from
+the notebooks at the repo root — `fair_rag_experiment.ipynb` is the main entry point.
+See `CLAUDE.md` for the full architecture and a code-level walkthrough of
+`RunConfig`/`ExperimentRunner`/`BatchExperimentRunner`.
+
+The original paper authors' single-setting CLI scripts (`experiment.py`,
+`normalize_eu.py`) still exist under `legacy/` for reference/reproducibility of the
+paper's exact original method, but are no longer the recommended way to run anything
+here — see `legacy/README.md`.
 
 
 

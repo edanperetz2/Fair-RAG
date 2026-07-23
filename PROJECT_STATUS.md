@@ -6,6 +6,17 @@ still open, and how to continue — based on the project proposal, full git hist
 (including two abandoned branches recovered from local git objects), and a read-through
 of all three notebooks and the current codebase.
 
+**Update (2026-07-23):** decided to continue from Effort B only. Repo cleaned up
+accordingly: `main` is now the single branch (`refactored-experimentation` and the
+recovered `experiment-recreation` branch were both retired — nothing was lost, see
+below); `experiment.py`/`normalize_eu.py` moved to `legacy/`; the two salvageable
+artifacts from the abandoned `experiment-recreation` branch (MLX generator code, the
+TREC-RAG-2024 notebook) were extracted into `legacy/` as plain files before that branch
+was deleted; `eval/` was renamed to `utility_metrics/` to stop it being confused with
+`utility_labels/lamp_eval.py`; the large data zips are no longer tracked in git (still
+present locally, regeneration path documented in `README.md`). The narrative below
+still describes the full history accurately — only the current file layout has moved.
+
 For the architecture of the code as it exists today, see `CLAUDE.md` — this document
 focuses on the *story* (what was tried, why, and what's left), not the code layout.
 

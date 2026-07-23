@@ -2,6 +2,7 @@
 data/lamp/
 data/avocado-1.0.2/
 data/create_avocado.sh
+data/*.zip
 *.json
 *.tsv
 

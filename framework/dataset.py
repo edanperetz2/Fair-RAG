@@ -161,7 +161,7 @@ class LaMPDataset(DatasetHandler):
         return [pid_map[pid] for pid in pids if pid in pid_map]
 
     def get_metric_fn(self) -> Tuple[str, Callable]:
-        from eval.lamp_metrics import (
+        from utility_metrics.lamp_metrics import (
             get_metric_fn_accuracy,
             get_metric_fn_mae,
             get_metric_fn_rouge_L,
