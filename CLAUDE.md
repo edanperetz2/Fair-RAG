@@ -14,8 +14,8 @@ Day-to-day experimentation happens in the notebooks at the repo root (`fair_rag_
 
 ## Environment
 
-- Python venv at `.venv/` — activate with `.venv\Scripts\activate` on Windows.
-- Dependencies: `pip install -r requirements.txt` (torch, transformers, sentence-transformers, langchain, faiss-cpu, rouge, evaluate, sparsembed, python-dotenv).
+- Python venv at `.venv/` (Python 3.10) — activate with `.venv\Scripts\activate` on Windows.
+- Dependencies: `pip install -r requirements.txt` (torch, transformers, sentence-transformers, langchain, faiss-cpu, rouge, evaluate, sparsembed, python-dotenv, accelerate, plus matplotlib/scipy/scikit-learn/ipykernel for the analysis notebooks). Registered as a Jupyter kernel named `fair-rag` (`Fair-RAG (.venv)`) via `python -m ipykernel install --user --name fair-rag --display-name "Fair-RAG (.venv)"` — select that kernel when opening the notebooks. Note: installing the full `jupyter`/`jupyterlab` meta-package can fail here with a Windows long-path error (this project sits under a deep path) — `ipykernel` alone is sufficient to run notebooks from an existing Jupyter/VS Code frontend.
 - No test suite, linter, or CI config exists in this repo — there is nothing to run for "tests"/"lint" beyond executing the scripts/notebooks themselves.
 - GPU is optional; `PromptLM` (`generator/lm.py`) auto-selects CUDA → MPS → CPU. Multi-GPU inference goes through `accelerate` and `generator/lm_distributed_inference.py`.
 
