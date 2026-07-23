@@ -7,7 +7,7 @@ already-completed runs, not for running experiments (that stays in fair_rag_expe
 """
 
 from analysis.labels import format_rerank_label
-from analysis.normalization import safe_div, normalize_query_rows
+from analysis.normalization import safe_div, normalize_query_rows, macro_from_normalized_query_rows
 from analysis.binning import bin_label_for_value, pool_delta_by_bin
 from analysis.loading import (
     find_completed_run_dirs,
@@ -29,6 +29,7 @@ __all__ = [
     "format_rerank_label",
     "safe_div",
     "normalize_query_rows",
+    "macro_from_normalized_query_rows",
     "bin_label_for_value",
     "pool_delta_by_bin",
     "find_completed_run_dirs",

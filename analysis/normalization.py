@@ -94,3 +94,37 @@ def normalize_query_rows(
         normalized_parts.append(part)
 
     return pd.concat(normalized_parts, ignore_index=True)
+
+
+_NORM_METRIC_COLS = ("ee_relevance_norm", "ee_disparity_norm", "expected_utility_norm", "avg_ild_jaccard_norm")
+_RUN_META_COLS = (
+    "run_id", "setting_id", "seed", "dataset_type", "lamp_num", "lamp_split_type",
+    "generator_name", "ranker", "rerank_method", "pl_alpha", "pl_samples", "mmr_lambda",
+    "top_k", "run_dir",
+)
+
+
+def macro_from_normalized_query_rows(norm_query_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Aggregate per-query normalized rows (from `normalize_query_rows`) to one row per
+    run_dir: mean of the _norm metric columns, plus that run's config/metadata fields.
+    To include a reference run (e.g. gold/oracle) in the normalization *bounds* without
+    it appearing in the output, pass it into `normalize_query_rows` alongside everything
+    else and filter it out of the result before calling this function.
+    """
+    if norm_query_df.empty:
+        return norm_query_df.copy()
+
+    rows = []
+    for run_dir, group in norm_query_df.groupby("run_dir", dropna=False):
+        first = group.iloc[0]
+        row = {col: first.get(col) for col in _RUN_META_COLS if col in group.columns}
+        row["n_queries"] = len(group)
+        for col in _NORM_METRIC_COLS:
+            if col in group.columns and group[col].notna().any():
+                row[col] = group[col].dropna().mean()
+            elif col in group.columns:
+                row[col] = None
+        rows.append(row)
+
+    return pd.DataFrame(rows)
