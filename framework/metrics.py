@@ -10,8 +10,7 @@ from __future__ import annotations
 import os
 import sys
 import hashlib
-import tempfile
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional
 
 import numpy as np
 
@@ -118,7 +117,7 @@ def _text_to_tokens(text: str) -> frozenset:
     return frozenset(text.lower().split())
 
 
-def _jaccard(a: frozenset, b: frozenset) -> float:
+def jaccard_similarity(a: frozenset, b: frozenset) -> float:
     if not a and not b:
         return 1.0
     union = len(a | b)
@@ -143,7 +142,7 @@ def compute_diversity(doc_texts: List[str]) -> Dict[str, Optional[float]]:
     sims: List[float] = []
     for i in range(n):
         for j in range(i + 1, n):
-            sims.append(_jaccard(token_sets[i], token_sets[j]))
+            sims.append(jaccard_similarity(token_sets[i], token_sets[j]))
 
     mean_sim = sum(sims) / len(sims)
     return {

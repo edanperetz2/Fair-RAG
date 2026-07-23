@@ -23,8 +23,8 @@ from __future__ import annotations
 
 import os
 import sys
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from typing import Dict, List, Optional
 
 import numpy as np
 
@@ -34,6 +34,7 @@ sys.path.insert(0, ROOT)
 from perturbation import plackettluce as pl_mod
 from framework.retrieval import normalize_scores_for_pl
 from framework.config import list_id_for_pl, list_id_for_mmr, list_id_for_deterministic, list_id_for_pl_mmr
+from framework.metrics import profile_to_text, jaccard_similarity
 
 
 # ---------------------------------------------------------------------------
@@ -131,19 +132,7 @@ def generate_pl_lists(
 
 def _profile_to_tokens(profile: dict) -> frozenset:
     """Extract a token set from a profile dict (all string fields except id/date)."""
-    skip = {"id", "date"}
-    parts: List[str] = []
-    for k, v in profile.items():
-        if k not in skip and isinstance(v, str):
-            parts.append(v)
-    return frozenset(" ".join(parts).lower().split())
-
-
-def _jaccard_sim(a: frozenset, b: frozenset) -> float:
-    if not a and not b:
-        return 1.0
-    union = len(a | b)
-    return len(a & b) / union if union else 0.0
+    return frozenset(profile_to_text(profile).lower().split())
 
 
 # ---------------------------------------------------------------------------
@@ -200,7 +189,7 @@ def generate_mmr_list(
             rel = rel_scores[i]
             if selected_indices:
                 max_sim = max(
-                    _jaccard_sim(pid_to_tokens[pids[i]], pid_to_tokens[pids[j]])
+                    jaccard_similarity(pid_to_tokens[pids[i]], pid_to_tokens[pids[j]])
                     for j in selected_indices
                 )
             else:
@@ -303,7 +292,7 @@ def generate_pl_mmr_lists(
                     adj_log[k_r] = log_base[i]
                 else:
                     max_sim = max(
-                        _jaccard_sim(pid_to_tokens[pids[i]], pid_to_tokens[pids[j]])
+                        jaccard_similarity(pid_to_tokens[pids[i]], pid_to_tokens[pids[j]])
                         for j in selected_indices
                     )
                     diversity_penalty = np.log(

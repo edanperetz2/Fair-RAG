@@ -8,7 +8,7 @@ import torch
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 from transformers.utils import logging as hf_logging
 
-from utils import models_info
+from utils import models_info, seed_everything
 from hf_runtime import from_pretrained_kwargs
 
 hf_logging.set_verbosity_error()
@@ -41,7 +41,7 @@ class PromptLM:
             "num_beams": 4,
             "do_sample": False,
         }
-        self._seed_everything()
+        seed_everything(self.seed)
         self.tokenizer, self.model, self.device = self._initialize_model()
 
     def _initialize_model(self):
@@ -84,15 +84,8 @@ class PromptLM:
     def model_max_length(self) -> int:
         return self.tokenizer.model_max_length
 
-    def _seed_everything(self) -> None:
-        if self.seed is None:
-            return
-        torch.manual_seed(self.seed)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(self.seed)
-
     def answer_question(self, final_prompt: str) -> str:
-        self._seed_everything()
+        seed_everything(self.seed)
         inputs = self.tokenizer([final_prompt], return_tensors="pt", padding=True, truncation=True)
         input_ids = inputs["input_ids"].to(self.device)
         attention_mask = inputs["attention_mask"].to(self.device)

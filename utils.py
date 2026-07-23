@@ -1,6 +1,8 @@
 import numpy as np
 import os
 import pandas as pd
+import torch
+from typing import Optional
 
 
 CUR_DIR_PATH = os.path.dirname(os.path.realpath(__file__))
@@ -19,6 +21,15 @@ models_info = {
         "hf_pipeline_task": "text2text-generation",
     },
 }
+
+
+def seed_everything(seed: Optional[int]) -> None:
+    """Seed torch (and CUDA, if available) for reproducible generation. No-op if seed is None."""
+    if seed is None:
+        return
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
 
 def trim_sentence_by_token_len(sentence: str, tokenizer, max_tok_len) -> str:

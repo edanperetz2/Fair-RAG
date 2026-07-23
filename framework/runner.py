@@ -27,7 +27,7 @@ import os
 import random
 import sys
 import time
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set
 
 import numpy as np
 import torch

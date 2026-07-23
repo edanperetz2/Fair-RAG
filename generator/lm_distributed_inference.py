@@ -10,7 +10,7 @@ from transformers import BitsAndBytesConfig
 from transformers.utils import logging as hf_logging
 from accelerate import Accelerator
 from transformers.tokenization_utils_base import VERY_LARGE_INTEGER
-from utils import models_info
+from utils import models_info, seed_everything
 from hf_runtime import from_pretrained_kwargs
 
 hf_logging.set_verbosity_error()
@@ -29,7 +29,7 @@ class PromptLMDistributedInference:
     def __init__(self, model_name: str, load_in_8bit=False, seed: int | None = None) -> None:
         self.model_name = model_name
         self.seed = seed
-        self._seed_everything()
+        seed_everything(self.seed)
         if load_in_8bit:
             quantization_config = BitsAndBytesConfig(
                 load_in_8bit=load_in_8bit,
@@ -82,15 +82,8 @@ class PromptLMDistributedInference:
         # Make sure the processes are synchronized up to this point before proceeding
         self.accelerator.wait_for_everyone()
 
-    def _seed_everything(self) -> None:
-        if self.seed is None:
-            return
-        torch.manual_seed(self.seed)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(self.seed)
-
     def answer_question(self, final_prompt: str) -> str:
-        self._seed_everything()
+        seed_everything(self.seed)
         inputs = self.tokenizer(
             [final_prompt], return_tensors="pt", padding=True, truncation=True
         )
