@@ -8,7 +8,7 @@ Official code for *"Towards Fair RAG: On the Impact of Fair Ranking in Retrieval
 
 All active work goes through **`framework/`** — the config-driven, resumable experimentation framework (JSONL-based artifacts). Data/retrieval precomputation still goes through the original paper's top-level scripts (`retrieval/rank_profiles.py`, `retrieval/gold_retriever.py`, `utility_labels/*.py`), which `framework/` consumes as inputs.
 
-The paper authors' original single-setting driver scripts (`experiment.py`, `normalize_eu.py`) live under **`legacy/`** — fully superseded by `framework.ExperimentRunner`/`BatchExperimentRunner`, kept only for reference (see `legacy/README.md`). Don't build new work on them. `legacy/` also holds two recovered-but-never-integrated artifacts from an earlier, abandoned approach (`mlx_generator_reference.py`, `trec_rag_2024_dataset_overview.ipynb`) — see `PROJECT_STATUS.md` for that history.
+The paper authors' original single-setting driver scripts (`experiment.py`, `normalize_eu.py`) live under **`legacy/`** — fully superseded by `framework.ExperimentRunner`/`BatchExperimentRunner`, kept only for reference (see `legacy/README.md`). Don't build new work on them. `legacy/` also holds two recovered-but-never-integrated artifacts from an earlier, abandoned approach (`mlx_generator_reference.py`, `trec_rag_2024_dataset_overview.ipynb`) — see `docs/PROJECT_STATUS.md` for that history.
 
 Day-to-day experimentation happens in the notebooks at the repo root (`fair_rag_experiment.ipynb`, `fair_rag_diversity_story.ipynb`, `fair_rag_stats_exploration.ipynb`), which import from `framework/`. This repo has a single branch, `main`.
 

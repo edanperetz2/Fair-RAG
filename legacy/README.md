@@ -2,7 +2,7 @@
 
 Everything in this folder is **not part of the active pipeline**. It's kept purely as
 reference. Nothing here is imported by `framework/` or the root notebooks. See
-`PROJECT_STATUS.md` at the repo root for the full backstory.
+`docs/PROJECT_STATUS.md` for the full backstory.
 
 - **`experiment.py`, `normalize_eu.py`** — the original paper authors' driver scripts
   for running one experiment setting and normalizing its Expected Utility. Fully

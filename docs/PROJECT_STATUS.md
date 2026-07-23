@@ -17,12 +17,17 @@ was deleted; `eval/` was renamed to `utility_metrics/` to stop it being confused
 present locally, regeneration path documented in `README.md`). The narrative below
 still describes the full history accurately — only the current file layout has moved.
 
+**Update (2026-07-23, later):** this document itself moved to `docs/PROJECT_STATUS.md`,
+alongside the project proposal and paper PDFs (`docs/project_proposal.pdf`,
+`docs/fair_rag_paper.pdf`) — see `docs/README.md` for an index. `README.md` and
+`CLAUDE.md` stay at the repo root (GitHub/Claude Code both expect them there).
+
 For the architecture of the code as it exists today, see `CLAUDE.md` — this document
 focuses on the *story* (what was tried, why, and what's left), not the code layout.
 
 ## 1. Where this started: the proposal
 
-From `IDAN PERETZ 308560150 and AVI SIMKIN 312485816.pdf` (project proposal):
+From `docs/project_proposal.pdf` (the original project proposal):
 
 - **Starting point**: the paper *"Towards Fair RAG"* (Eun Kim & Diaz, 2025) — this repo
   is a fork of its official code (`kimdanny/Fair-RAG`) — extends fair-ranking ideas
