@@ -66,17 +66,6 @@ class DatasetHandler(ABC):
 # LaMP adapter
 # ---------------------------------------------------------------------------
 
-_LAMP_LABELS: Dict[int, List[str]] = {
-    1: ["[1]", "[2]"],
-    2: [
-        "sci-fi", "based on a book", "comedy", "action", "twist ending",
-        "dystopia", "dark comedy", "classic", "psychology", "fantasy",
-        "romance", "thought-provoking", "social commentary", "violence", "true story",
-    ],
-    3: ["1", "2", "3", "4", "5"],
-}
-
-
 class LaMPDataset(DatasetHandler):
     """
     LaMP dataset adapter.
@@ -161,12 +150,13 @@ class LaMPDataset(DatasetHandler):
 
     def get_metric_fn(self) -> Tuple[str, Callable]:
         from utility_metrics.lamp_metrics import (
+            LAMP_CLASSIFICATION_LABELS,
             get_metric_fn_accuracy,
             get_metric_fn_mae,
             get_metric_fn_rouge_L,
         )
         if self.lamp_num in {1, 2}:
-            return "acc", get_metric_fn_accuracy(_LAMP_LABELS[self.lamp_num])
+            return "acc", get_metric_fn_accuracy(LAMP_CLASSIFICATION_LABELS[self.lamp_num])
         elif self.lamp_num == 3:
             return "mae", get_metric_fn_mae()
         else:

@@ -9,7 +9,11 @@ CUR_DIR_PATH = os.path.dirname(os.path.realpath(__file__))
 PARENT_DIR_PATH = os.path.dirname(CUR_DIR_PATH)
 sys.path.append(PARENT_DIR_PATH)
 
-from utility_metrics.lamp_metrics import get_metric_fn_accuracy, get_metric_fn_rouge_L
+from utility_metrics.lamp_metrics import (
+    LAMP_CLASSIFICATION_LABELS,
+    get_metric_fn_accuracy,
+    get_metric_fn_rouge_L,
+)
 
 
 def load_df(fp: str) -> pd.DataFrame:
@@ -17,33 +21,6 @@ def load_df(fp: str) -> pd.DataFrame:
     dtype_spec = {"qid": str, "pid": str, "answer": str, "target": str}
     df = pd.read_csv(fp, delimiter="\t", skiprows=1, dtype=dtype_spec)
     return df
-
-
-def get_labels(lamp_num):
-    if lamp_num == 1:
-        return ["[1]", "[2]"]
-    elif lamp_num == 2:
-        return [
-            "sci-fi",
-            "based on a book",
-            "comedy",
-            "action",
-            "twist ending",
-            "dystopia",
-            "dark comedy",
-            "classic",
-            "psychology",
-            "fantasy",
-            "romance",
-            "thought-provoking",
-            "social commentary",
-            "violence",
-            "true story",
-        ]
-    elif lamp_num == 3:
-        return ["1", "2", "3", "4", "5"]
-    else:
-        raise ValueError(f"LaMP {lamp_num} is not classification task")
 
 
 def main(args):
@@ -72,7 +49,7 @@ def main(args):
 
     # set corresponding metric function for a LaMP task
     if LAMP_NUM in {1, 2, 3}:
-        metric_fn = get_metric_fn_accuracy(get_labels(LAMP_NUM))
+        metric_fn = get_metric_fn_accuracy(LAMP_CLASSIFICATION_LABELS[LAMP_NUM])
     else:
         metric_fn = get_metric_fn_rouge_L()
 
