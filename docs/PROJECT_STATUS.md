@@ -208,3 +208,103 @@ notebooks call for but never finished.
 6. Separately and deliberately (don't silently revive) decide whether the MLX local-model
    support or the TREC-RAG-2024 extension from Effort A are worth pursuing further, or
    were dead ends worth explicitly closing off.
+
+## 7. Update (2026-07-24): a real scoped experiment was run, executed, and compared to the paper
+
+Steps 3-5 above were carried out for real, on this machine, GPU-accelerated (CUDA
+verified working via `torch.cuda.is_available()` + an on-device matmul before any
+experiment code ran). Scope was deliberately narrowed to keep the run affordable:
+BM25 only (SPLADE/Contriever retrieval was never precomputed — no `retrieval/rank_profiles.py`
+run for them), `flanT5Small` only, `nq=100` (or fewer, where a LaMP task has under 100
+queries after filtering — LaMP-1 has 51), 4 rerank settings per task (`deterministic`,
+`mmr λ=0.55`, `pl α=2 s=10`, `pl α=8 s=10`), all 7 LaMP tasks, seed 42.
+
+**Timing** (from `experiment_runs/batches/scoped_rq_experiment/batch_summary.json`
+manifests, wall-clock, this machine): 28 settings, 2,604 (qid, list_id) generation
+units, **5,856s (97.6 min) total**. Per-unit cost is dominated by LLM generation calls
+(not reranking), roughly 0.1-0.8s/unit depending on task (LaMP-4/6/7's longer-output
+tasks cost more per generation than LaMP-1/2's short classification answers). This is
+~4.5% of the ~14,600-query full-scale scope mentioned when this run was planned — a
+naive linear extrapolation to a full 3-retriever x 4-generator x 7-task x 4-rerank
+sweep (matching the paper's 12 RAG models) would be on the order of **days of
+continuous compute**, which is why this run stayed deliberately scoped rather than
+attempting the paper's full grid on a single laptop.
+
+**Finding 1 (structural, methodological — found by actually running the framework,
+not derivable from reading the code alone): EE-D cannot register below 1.0 for any
+single-list method.** `deterministic` and `mmr` each produce exactly one ranked list
+per query; the vendored `expected_exposure` disparity metric is only ever non-trivial
+across *multiple* differently-ordered lists for the same query. Confirmed empirically:
+every deterministic and MMR run in this scoped experiment has `ee_disparity_norm`
+pinned at 1.0 for 100% of queries. Only `pl` (which samples `pl_samples=10`
+independent rankings per query) produces a spread of EE-D values. Practically, this
+means **MMR is not a fairness intervention in the EE-D sense used by this paper** —
+it's an unrelated (diversity-based) reranking method that happens to also get compared
+on the same utility axis. Any RQ2-style "utility at a given disparity level" analysis
+is only meaningful for the PL family of settings.
+
+**Finding 2 (paper comparison): reproduced Table 2's methodology exactly, including a
+bug it exposed.** The paper's Table 2 compares each disparity-bin's average
+fairer-model utility against a *single, unbinned* deterministic-baseline utility
+score (necessarily unbinned, per Finding 1 — the deterministic run only ever has one
+EE-D value). `analysis/binning.py::pool_delta_by_bin` originally binned the baseline
+too, which silently produced `NaN` in every bin except the single one the baseline's
+EE-D value fell into — this was caught only once we tried to actually reproduce
+Table 2's numbers and got mostly-NaN output. Fixed by adding a `bin_baseline=False`
+mode (see `analysis/binning.py`, committed). With that fix, the paper-comparable
+table for this scoped run (PL vs. deterministic, pooled Δ normalized EU by EE-D bin,
+per LaMP task) shows the same *qualitative* shape the paper reports: near-baseline or
+better utility once EE-D climbs into `[0.6, 1.0)`, and the worst deltas concentrated
+in the most-disparate `[0.0, 0.2)`-`[0.2, 0.4)` range — e.g. LaMP-2 shows +0.11 to
++0.21 in `[0.4, 1.0)` vs. baseline, LaMP-4 shows +0.12 to +0.28 in the same range.
+**Caveat:** several bins have very small n (as low as 2-7 comparison queries, since
+this run only pooled `α=2` and `α=8`, not the paper's full `α∈{1,2,4,8}` sweep, and
+`nq=100` vs. the paper's 51-833 queries per task) — treat this as a directional
+replication, not a statistically powered one.
+
+**Finding 3 (mediation test, extends beyond what the paper reports): diversity (ILD),
+not disparity (EE-D), appears to be the actual driver of utility differences.**
+`EU ~ EE-D` alone: coef=+0.016, p=0.53 (not significant). Adding ILD:
+`EU ~ EE-D + ILD`: coef(EE-D) shrinks to +0.006 (p=0.81, still not significant),
+coef(ILD)=-0.27 (p=0.00014, significant) — a **62% shrinkage in the EE-D coefficient**
+once ILD is controlled for, classic evidence that ILD is doing the explanatory work
+here, not EE-D directly. Note the sign: higher intra-list diversity is associated with
+*lower* utility in this data, opposite to a naive "more diverse retrieval helps
+generation" story — plausible mechanism: for these short LaMP profiles, less-similar
+retrieved items are less likely to *all* be relevant to the same target, so ILD may be
+partly proxying for retrieval-quality dilution rather than beneficial variety. This
+should be treated as suggestive, not conclusive (R²=0.007 even with both terms — EE-D
+and ILD together explain very little of the variance in per-query utility; most of
+what determines utility here is presumably query/task-specific, not rerank-method-driven).
+
+### Concrete next-step experiments (in rough priority order)
+
+1. **Widen the α sweep to match the paper (α ∈ {1, 2, 4, 8}), same scope otherwise.**
+   Directly fills the gaps in Finding 2's small-n bins without adding a new retriever
+   or generator — cheapest way to get a real statistically-powered Table-2 replication.
+2. **Add a second generator (`flanT5Base`, already have label data unzipped) at the
+   same BM25/nq=100 scope.** Tests whether Finding 3's negative ILD coefficient is a
+   `flanT5Small`-specific artifact (a weak, easily-diluted generator) or holds up with
+   a stronger model — the paper's own Table 1 shows the fairness-quality tradeoff slope
+   itself varies by retriever, so a size-varying generator comparison is a natural
+   companion axis they didn't isolate this way.
+3. **Precompute SPLADE and/or Contriever retrieval** (`retrieval/rank_profiles.py
+   --ranker splade`) **for the same scoped tasks/generator**, to test whether Finding 1
+   and Finding 3 are BM25-specific. The paper's Table 1 already shows retriever choice
+   changes the fairness-quality tradeoff slope substantially (BM25 slope 0.14 vs.
+   SPLADE 0.20 on LaMP-1) — worth checking whether it also changes the sign of the ILD
+   mediation effect.
+4. **Run an MMR-λ sweep** (e.g. λ ∈ {0.25, 0.5, 0.65, 0.75, 0.9}) instead of the
+   single λ=0.55 used here. Since Finding 1 shows MMR can't move EE-D, the interesting
+   question for MMR specifically is whether *utility* varies smoothly with λ on its
+   own diversity axis — a different, ILD-focused research question than the EE-D-based
+   RQ2, but directly relevant to Finding 3's diversity-mediation result.
+5. **Increase `pl_samples` beyond 10** (e.g. 20-30) for a subset of tasks, to check
+   whether the EE-D spread and utility estimates are sample-size-stable — 10 samples
+   is on the low end for a Monte Carlo disparity estimate and could be adding noise to
+   Finding 2's bin assignments.
+6. **A dedicated, adequately-powered mediation analysis**: pool a wider α sweep (item 1)
+   with a larger `nq` for at least the smaller LaMP tasks (LaMP-1/2/3 are cheap per-unit;
+   LaMP-1 already uses its full 51-query corpus, but LaMP-2/3 could go well past 100)
+   specifically to shrink Finding 3's confidence intervals — right now R²=0.007 makes
+   it impossible to say how much of the true relationship this mediation model captures.
