@@ -27,10 +27,11 @@ import os
 import random
 import sys
 import time
-from typing import Dict, List, Optional, Set
+from typing import Callable, Dict, List, Optional, Set
 
 import numpy as np
 import torch
+from tqdm import tqdm
 
 ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, ROOT)
@@ -59,6 +60,16 @@ from framework.reranking import (
 from framework.retrieval import load_retrieval_results
 
 
+def _log(msg: str) -> None:
+    """print() with a wall-clock timestamp prefix, for tracking long-running batches."""
+    print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {msg}")
+
+
+def units_per_query(rerank_cfg) -> int:
+    """Number of (qid, list_id) work units one query produces for a given RerankConfig."""
+    return rerank_cfg.pl_samples if rerank_cfg.method in ("pl", "pl_mmr") else 1
+
+
 class ExperimentRunner:
     """Stateful runner for one experiment configuration."""
 
@@ -66,7 +77,14 @@ class ExperimentRunner:
         self.cfg = cfg
         self._sid = make_setting_id(cfg)
 
-    def run(self) -> ArtifactStore:
+    def run(self, on_unit_complete: Optional[Callable[[], None]] = None) -> ArtifactStore:
+        """
+        Run this setting to completion.
+
+        `on_unit_complete`, if given, is called once per completed (qid, list_id) unit
+        (i.e. once per LLM generation call) - used by BatchExperimentRunner to drive a
+        global progress bar across an entire multi-setting batch.
+        """
         cfg = self.cfg
         self._seed_everything()
 
@@ -103,7 +121,7 @@ class ExperimentRunner:
             last_seen_query_index=existing_manifest.get("last_seen_query_index", 0),
         )
         store.flush_manifest()
-        print(f"Setting: {self._sid}")
+        _log(f"Setting: {self._sid}")
 
         llm = self._make_llm()
         tokenizer = getattr(llm, "tokenizer", None)
@@ -120,7 +138,7 @@ class ExperimentRunner:
             ee_done_qids: Set[str] = store.get_ee_completed_qids()
             saved_retrieval_qids: Set[str] = store.get_saved_retrieval_qids()
             summarized_qids: Set[str] = store.get_query_summary_qids()
-            print(f"Resuming run: {len(summarized_qids)} summarized queries already completed")
+            _log(f"Resuming run: {len(summarized_qids)} summarized queries already completed")
         else:
             completed_units = set()
             ee_done_qids = set()
@@ -134,11 +152,20 @@ class ExperimentRunner:
         units_since_flush = 0
         n_queries_seen = 0
 
+        total_units = expected_queries * units_per_query(cfg.rerank)
+        pbar = tqdm(
+            total=total_units,
+            initial=min(len(completed_units), total_units),
+            desc=self._sid[:40],
+            unit="unit",
+            leave=False,
+        )
+
         for qid, question, target, all_profiles in dataset.iter_queries():
             n_queries_seen += 1
             ret_for_qid = retrieval_results.get(qid, [])
             if not ret_for_qid:
-                print("[WARN] Missing retrieval results for one query; skipping.")
+                _log("[WARN] Missing retrieval results for one query; skipping.")
                 continue
 
             if cfg.resume and qid in saved_retrieval_qids:
@@ -228,6 +255,9 @@ class ExperimentRunner:
                     jaccard_mean=jac_val,
                 )
                 completed_units.add(unit_key)
+                pbar.update(1)
+                if on_unit_complete is not None:
+                    on_unit_complete()
 
                 units_since_flush += 1
                 if units_since_flush >= cfg.checkpoint.flush_every:
@@ -265,6 +295,8 @@ class ExperimentRunner:
                         self._print_progress_report(progress)
                         queries_since_report = 0
 
+        pbar.close()
+
         if queries_since_report > 0 and metric_totals["n_queries"] > 0:
             progress = self._build_progress_report(
                 metric_totals=metric_totals,
@@ -283,9 +315,9 @@ class ExperimentRunner:
         store.flush_manifest()
         summary_fp = store.write_summary()
         macro_fp = store.write_macro_summary()
-        print(f"Completed setting: {self._sid}")
-        print(f"Summary: {summary_fp}")
-        print(f"Macro summary: {macro_fp}")
+        _log(f"Completed setting: {self._sid}")
+        _log(f"Summary: {summary_fp}")
+        _log(f"Macro summary: {macro_fp}")
         return store
 
     def _make_run_id(self) -> str:
@@ -366,7 +398,7 @@ class ExperimentRunner:
 
     @staticmethod
     def _print_progress_report(progress: Dict[str, Optional[float]]) -> None:
-        print(
+        _log(
             f"Setting: {progress['setting_id']} | "
             f"Average after {progress['queries_completed']} queries: "
             f"EE-D={progress['avg_ee_disparity']:.4f}, "

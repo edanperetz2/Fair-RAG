@@ -11,6 +11,7 @@ mail-parser==3.15.0
 sparsembed==0.1.1
 python-dotenv==1.0.1
 accelerate==1.14.0
+tqdm==4.69.0
 
 # used by the analysis notebooks (fair_rag_diversity_story.ipynb, fair_rag_stats_exploration.ipynb)
 matplotlib==3.10.9
