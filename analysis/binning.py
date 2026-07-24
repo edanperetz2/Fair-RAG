@@ -40,6 +40,7 @@ def pool_delta_by_bin(
     method_col: str = "rerank_method",
     value_col: str = "expected_utility_norm",
     group_by: Optional[List[str]] = None,
+    bin_baseline: bool = True,
 ) -> pd.DataFrame:
     """
     Bin rows by `metric_col`, then for one or more `comparison_methods` report the
@@ -50,6 +51,16 @@ def pool_delta_by_bin(
     `baseline_filter` (row predicate - needed for e.g. "MMR at a specific lambda" as
     the baseline) must be given. `comparison_methods=None` means "every method other
     than the baseline".
+
+    `bin_baseline=True` (default) requires baseline rows to fall into the same bin as
+    the comparison rows they're differenced against - appropriate when the baseline
+    itself is stochastically sampled and has a `metric_col` spread of its own.
+    `bin_baseline=False` instead pools *all* baseline rows into one scalar mean
+    (ignoring `metric_col`) and compares every bin's comparison-method mean against
+    that single number. This matches the original paper's Table 2 methodology, where
+    the baseline is a single deterministic run (one EE-D value, e.g. always 1.0) and
+    can't itself populate every bin - binning it too would silently produce nothing
+    but NaNs outside its one bin.
 
     Returns a tidy DataFrame: group_by columns + ["method", "bin", "n_baseline",
     "n_comparison", "delta"].
@@ -82,12 +93,18 @@ def pool_delta_by_bin(
         else:
             candidate_methods = list(comparison_methods)
 
+        pooled_base_vals = baseline_rows[value_col].dropna() if not bin_baseline else None
+
         for method in candidate_methods:
             comparison_rows = part[part[method_col] == method]
             if comparison_rows.empty:
                 continue
             for bin_label in bin_labels:
-                base_vals = baseline_rows.loc[baseline_rows["_bin"] == bin_label, value_col].dropna()
+                base_vals = (
+                    pooled_base_vals
+                    if not bin_baseline
+                    else baseline_rows.loc[baseline_rows["_bin"] == bin_label, value_col].dropna()
+                )
                 comp_vals = comparison_rows.loc[comparison_rows["_bin"] == bin_label, value_col].dropna()
                 delta = (comp_vals.mean() - base_vals.mean()) if (not base_vals.empty and not comp_vals.empty) else None
                 row = {
