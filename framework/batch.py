@@ -90,7 +90,22 @@ class BatchExperimentRunner:
             if decision["action"] == "resume_existing":
                 already_done = len(ArtifactStore(decision["run_dir"]).get_completed_answer_units())
                 global_pbar.update(already_done)
-            store = ExperimentRunner(cfg_to_run).run(on_unit_complete=_on_unit_complete)
+            try:
+                store = ExperimentRunner(cfg_to_run).run(on_unit_complete=_on_unit_complete)
+            except Exception as exc:
+                # One setting's failure (e.g. a transient OS-level error) must not
+                # take down an entire multi-hour batch. The failed setting's manifest
+                # is left mid-run (status="running"), so simply rerunning this same
+                # batch later will pick it up again via resume_existing - nothing is
+                # lost, just deferred.
+                _log(f"[Batch] Run {index}/{len(self.configs)} FAILED: {sid} - {type(exc).__name__}: {exc}")
+                decision["action"] = "failed"
+                decision["error"] = f"{type(exc).__name__}: {exc}"
+                decisions.append(decision)
+                self._write_batch_summary(
+                    self._build_batch_summary(run_dirs=run_dirs, decisions=decisions)
+                )
+                continue
             run_dirs.append(store.run_dir)
             decision["run_dir"] = store.run_dir
             decisions.append(decision)

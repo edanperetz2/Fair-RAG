@@ -189,13 +189,32 @@ class ArtifactStore:
         return {}
 
     def flush_manifest(self) -> None:
-        """Atomically write the in-memory manifest to disk."""
+        """
+        Atomically write the in-memory manifest to disk.
+
+        Retries the final rename a few times on Windows ``PermissionError``
+        (WinError 5): this repo commonly lives under a cloud-synced folder
+        (OneDrive) whose sync client can transiently hold the destination file
+        open right after it's (re)written, which makes ``os.replace`` fail
+        even though nothing is actually wrong. Since this fires on every
+        single completed unit (``flush_every=1``), an un-retried transient
+        lock is enough to crash an entire multi-hour batch on one hiccup -
+        confirmed in practice, not just theorized.
+        """
         fp = self._path(_MANIFEST_FILE)
         tmp = fp + ".tmp"
         self._manifest["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
         with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(self._manifest, fh, indent=2, ensure_ascii=False)
-        os.replace(tmp, fp)
+        last_err: Optional[PermissionError] = None
+        for attempt in range(5):
+            try:
+                os.replace(tmp, fp)
+                return
+            except PermissionError as exc:
+                last_err = exc
+                time.sleep(0.2 * (attempt + 1))
+        raise last_err
 
     def update_manifest(self, **kwargs: Any) -> None:
         self._manifest.update(kwargs)
