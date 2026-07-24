@@ -101,4 +101,8 @@ def pool_delta_by_bin(
                     row.update(dict(zip(group_by, group_key)))
                 rows.append(row)
 
+    if not rows:
+        # Return a well-typed empty frame (not a columnless one) so callers can safely
+        # groupby/filter on the expected columns even when nothing matched.
+        return pd.DataFrame(columns=group_by + ["method", "bin", "n_baseline", "n_comparison", "delta"])
     return pd.DataFrame(rows)
