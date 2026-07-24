@@ -308,3 +308,79 @@ what determines utility here is presumably query/task-specific, not rerank-metho
    LaMP-1 already uses its full 51-query corpus, but LaMP-2/3 could go well past 100)
    specifically to shrink Finding 3's confidence intervals — right now R²=0.007 makes
    it impossible to say how much of the true relationship this mediation model captures.
+
+## 8. Update (2026-07-25): the widened α sweep (item 1 above), executed
+
+Ran item 1 from §7's next-steps list: widen the PL α sweep from {2,8} to the full
+paper-matching {1,2,4,8}. **Actual execution deviated from plan** (full detail in
+the plan file used for this work, `happy-bouncing-walrus.md`, but summarized here
+since it materially affects how to read the results below):
+
+- The active Windows power scheme was "Legion Balance Mode" (a Lenovo OEM profile),
+  which capped GPU clocks to ~13% of max and made the run ~2.5-4x slower than
+  estimated — not discovered until partway through, since the original plan only
+  checked GPU idle/memory, not the active power profile. Switching to "Legion
+  Performance Mode" partly recovered speed but not fully (likely some genuine
+  thermal buildup after many continuous hours of compute on top of the profile
+  issue). Given the revised ETA was still ~15-22 more hours, the decision was made
+  to stop the N=30 sweep partway and finish the remainder at the cheaper N=10.
+- **Two real robustness bugs surfaced and were fixed** (both committed to
+  `framework/`): `flush_manifest()` crashed the entire batch on a Windows
+  `PermissionError` from `os.replace` (this repo lives under OneDrive, whose sync
+  client can transiently lock a just-rewritten file — happens on every single
+  completed unit since `flush_every=1`, so one unlucky collision killed a 9-hour
+  job at unit 952/79422); fixed with a retry-with-backoff. `BatchExperimentRunner`
+  also now isolates a per-setting failure (logs it, continues to the next config)
+  instead of aborting the whole batch — one bad setting no longer costs the rest.
+- **Final data composition** (49 total run directories, all individually verified
+  `completed` with matching query counts and non-empty artifact files):
+  LaMP-1/2/3 have a full, internally-consistent α∈{1,2,4,8} sweep at **N=30**.
+  LaMP-4 has α∈{1,2,4} at **N=30** and α=8 at **N=10** (backfilled for free from the
+  original §7 run, which already had it — this task's 4-point curve has mixed
+  precision, flagged wherever it's shown). LaMP-5/6/7 have all 4 α values but only
+  at **N=10** (α=2/8 reused from the original §7 run; α=1/4 freshly computed).
+  `experiments/analyze_scoped_results.py` now has a `select_best_precision()` step
+  that automatically keeps only the highest-`pl_samples` row per (LaMP task, α) and
+  drops the lower-precision duplicate where both exist (e.g. LaMP-4's α=1/2/4 at
+  N=10 from the original run are correctly superseded by their N=30 versions).
+
+**Results, on the deduplicated 42-setting / 3,906-query-row dataset** (up from 28
+settings / 2,604 rows in §7):
+
+- **Paper-style Table 2 replication is now meaningfully better powered.** Most bins
+  across all 7 tasks now have 20-200+ comparison queries (vs. as few as 2-7 before).
+  A few thin bins remain (e.g. LaMP-1's `[0.2,0.4)` bin has n=1, LaMP-7's `[0.0,0.2)`
+  has n=4) — LaMP-1 and LaMP-7's α-to-EE-D mapping is evidently less smooth than the
+  other tasks', concentrating queries at the extremes. The qualitative pattern from
+  §7 holds: deltas trend toward flat-or-positive as EE-D rises through `[0.4,1.0)`,
+  worst in `[0.0,0.2)`.
+- **The ILD↔EE-D correlation is now statistically significant with the larger
+  sample**: r=-0.045, p=0.005, n=3,906 (was r=-0.037, p=0.06, n=2,604 in §7). Still a
+  practically negligible effect size — more data made a real-but-tiny effect
+  detectable, it didn't make the effect bigger.
+- **Mediation test, rerun on n=3,552 (up from 2,184): EE-D's coefficient is not just
+  small, it's unstable in sign.** `EU ~ EE-D` alone: coef=+0.0034, p=0.84. Adding
+  ILD: coef(EE-D) flips to -0.0077, p=0.65 — still nowhere near significant, and the
+  simple shrinkage-percentage framing from §7 breaks down here (a coefficient that's
+  indistinguishable from zero in both models and flips sign isn't meaningfully
+  "shrinking," so that metric is dropped for this dataset rather than reported as a
+  misleading number). `coef(ILD)=-0.308, p=6.9e-08` — the ILD effect direction and
+  significance from §7 holds up and gets *more* significant with more data, while
+  EE-D's apparent (already-weak) effect in §7 does not replicate as anything more
+  than noise. R²=0.008, still tiny — EE-D/ILD together explain very little per-query
+  utility variance.
+- **New: a borderline-significant EE-D×ILD interaction**, not visible in §7's
+  smaller sample. `EU ~ EE-D + ILD + EE-D:ILD`: coef(EE-D)=+0.298 (p=0.058),
+  coef(ILD)=-0.081 (p=0.53), coef(EE-D×ILD)=-0.316 (p=0.050). Read cautiously (both
+  right at the conventional 0.05 threshold), but the pattern is coherent: at low
+  ILD, higher EE-D trends toward *higher* utility; that relationship weakens or
+  reverses as ILD increases. This is a genuinely new hypothesis this dataset
+  surfaces — EE-D's effect on utility may be conditional on diversity level, not a
+  fixed effect the earlier simple/additive models could detect. Needs a larger,
+  purpose-built sample before treating as more than a lead worth following up.
+
+**Process lesson for future long runs**: check the *active Windows power scheme*
+(`powercfg /getactivescheme`), not just GPU idle/memory, before estimating
+multi-hour GPU workload timing on a laptop — OEM power profiles (Lenovo Legion's
+Balance/Performance/Quiet modes here) can silently cap clocks well below what
+`nvidia-smi`'s idle reading suggests is available.

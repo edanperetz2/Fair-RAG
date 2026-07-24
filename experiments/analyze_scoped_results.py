@@ -26,16 +26,35 @@ from analysis import (
 pd.set_option("display.width", 160)
 pd.set_option("display.max_columns", 20)
 
+def select_best_precision(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Some (lamp_num, pl_alpha) pairs exist at more than one pl_samples (N) value -
+    e.g. this repo's pl_alpha_sweep_n30 experiment re-ran some alphas at N=30 while
+    others (where the N=30 sweep was stopped partway and backfilled) only ever got
+    N=10. Mixing both precisions for the same (task, alpha) in one analysis would
+    silently double-count that condition and blend two different noise levels.
+    Keep only the highest-pl_samples row per (lamp_num, pl_alpha); non-"pl" rows
+    (deterministic/mmr, which don't have a pl_samples axis) pass through untouched.
+    """
+    is_pl = df["rerank_method"] == "pl"
+    pl_df = df[is_pl]
+    best_samples = pl_df.groupby(["lamp_num", "pl_alpha"])["pl_samples"].transform("max")
+    keep_pl = pl_df["pl_samples"] == best_samples
+    return pd.concat([df[~is_pl], pl_df[keep_pl]], ignore_index=True)
+
+
 run_dirs = list_run_dirs()
 print(f"Total completed run dirs: {len(run_dirs)}")
 
 macro_rows = build_macro_comparison_rows(run_dirs)
-macro_df = maybe_to_dataframe(macro_rows)
-print(f"Macro rows: {len(macro_df)}")
+macro_df_all = maybe_to_dataframe(macro_rows)
+macro_df = select_best_precision(macro_df_all)
+print(f"Macro rows: {len(macro_df_all)} (deduped to {len(macro_df)} best-precision-per-alpha rows)")
 
 query_rows = build_query_metric_rows(run_dirs)
-query_df = pd.DataFrame(query_rows)
-print(f"Query rows: {len(query_df)}")
+query_df_all = pd.DataFrame(query_rows)
+query_df = select_best_precision(query_df_all)
+print(f"Query rows: {len(query_df_all)} (deduped to {len(query_df)} best-precision-per-alpha rows)")
 
 print("\n" + "=" * 80)
 print("1. MACRO SUMMARY TABLE (one row per setting)")
