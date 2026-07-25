@@ -21,26 +21,11 @@ os.chdir(ROOT)
 from framework import build_query_metric_rows, build_macro_comparison_rows, list_run_dirs, maybe_to_dataframe
 from analysis import (
     normalize_query_rows, pool_delta_by_bin, fit_ols, format_rerank_label, format_macro_table_for_display,
+    select_best_precision,
 )
 
 pd.set_option("display.width", 160)
 pd.set_option("display.max_columns", 20)
-
-def select_best_precision(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Some (lamp_num, pl_alpha) pairs exist at more than one pl_samples (N) value -
-    e.g. this repo's pl_alpha_sweep_n30 experiment re-ran some alphas at N=30 while
-    others (where the N=30 sweep was stopped partway and backfilled) only ever got
-    N=10. Mixing both precisions for the same (task, alpha) in one analysis would
-    silently double-count that condition and blend two different noise levels.
-    Keep only the highest-pl_samples row per (lamp_num, pl_alpha); non-"pl" rows
-    (deterministic/mmr, which don't have a pl_samples axis) pass through untouched.
-    """
-    is_pl = df["rerank_method"] == "pl"
-    pl_df = df[is_pl]
-    best_samples = pl_df.groupby(["lamp_num", "pl_alpha"])["pl_samples"].transform("max")
-    keep_pl = pl_df["pl_samples"] == best_samples
-    return pd.concat([df[~is_pl], pl_df[keep_pl]], ignore_index=True)
 
 
 run_dirs = list_run_dirs()

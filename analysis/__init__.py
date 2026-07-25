@@ -12,6 +12,7 @@ from analysis.binning import bin_label_for_value, pool_delta_by_bin
 from analysis.loading import (
     find_completed_run_dirs,
     existing_setting_ids,
+    select_best_precision,
     load_relevance_mapping,
     load_retrieval_scores,
 )
@@ -35,6 +36,7 @@ __all__ = [
     "pool_delta_by_bin",
     "find_completed_run_dirs",
     "existing_setting_ids",
+    "select_best_precision",
     "load_relevance_mapping",
     "load_retrieval_scores",
     "plot_metric_scatter_panels",

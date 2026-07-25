@@ -384,3 +384,69 @@ settings / 2,604 rows in §7):
 multi-hour GPU workload timing on a laptop — OEM power profiles (Lenovo Legion's
 Balance/Performance/Quiet modes here) can silently cap clocks well below what
 `nvidia-smi`'s idle reading suggests is available.
+
+## 9. Update (2026-07-25): the MMR-λ diversity sweep — the direct mechanism test
+
+**What ran**: the experiment planned at the end of the previous session (plan file
+`~\.claude\plans\based-on-previous-experiments-misty-hamming.md`): MMR at
+λ ∈ {0.15, 0.3, 0.45, 0.7, 0.85, 1.0} × all 7 LaMP tasks, BM25/flanT5Small/nq=100/
+seed=42 — 42 new runs on top of the existing 49 (total now 91). Rationale: MMR is
+deterministic (EE-D pinned at 1.0 at every λ), so λ manipulates diversity with
+fairness held perfectly fixed — the cleanest test this framework can produce of
+whether diversity, not fairness, drives utility. Execution was clean: pre-flight
+caught the power scheme back on Balance Mode (switched before launch, per the §8
+lesson); one relaunch was needed because flaky HuggingFace network checks were
+stalling model loads (fixed with HF_HUB_OFFLINE=1 — model fully cached); 28.9 min
+total on fresh-GPU rates. All 91 manifests completed with full query counts.
+Analysis: `experiments/analyze_mmr_sweep.py`.
+
+**Sanity check passed exactly**: λ=1.0 (pure-relevance MMR) reproduces the
+deterministic run's EU and ILD to 6 decimals on all 7 tasks — the greedy MMR loop
+with the diversity term zeroed out is the identity reranking, as designed.
+
+**Finding 1 — the manipulation is real but weaker than hoped on most tasks.**
+λ→ILD ranges per task: 0.01–0.09 on six tasks, 0.25 on LaMP-6. BM25's top-pool
+candidates are already lexically similar, so even λ=0.15 can only diversify so
+much. LaMP-6 (email subjects, apparently more heterogeneous pools) is the
+exception. Within-task estimates below are correspondingly underpowered.
+
+**Finding 2 — the core within-MMR regression (EE-D fixed): the pooled negative ILD
+effect replicates, but per-task it's a composition story.** Pooled EU_norm~ILD_norm
+on MMR rows only: coef −0.247 (p=1.7e-05, n=4,144) — so §8's negative ILD
+coefficient is not a PL-randomization confound; it survives with fairness held
+fixed. But per task: 5 of 7 non-significant, and the two (near-)significant ones
+go in opposite directions — LaMP-7 −0.68 (p=0.043), LaMP-2 +2.53 (p=0.069). The
+raw λ→EU table says the same thing more plainly: more diversity helps the
+classification tasks (LaMP-2: 0.10→0.17 EU from λ=1.0 to λ=0.15; LaMP-3:
+0.46→0.53-0.56) and mildly hurts generation tasks (LaMP-5, LaMP-7). The pooled
+negative coefficient is substantially cross-task composition, not a uniform
+within-task law. "Does diversity help?" has a task-dependent answer.
+
+**Finding 3 — the matched-diversity fairness test: randomization adds nothing once
+diversity is matched.** Binning all PL+MMR query rows into ILD quantiles and
+comparing PL vs MMR utility within bins: deltas per bin between −0.044 and +0.020
+(mostly negative); per-task n-weighted means between −0.035 and +0.016 with no
+consistent sign. At matched diversity, the stochastic/fairness component of PL
+contributes ~nothing to utility (if anything, slightly negative). This is the most
+direct answer to the proposal's question the project has produced.
+
+**Finding 4 — the §8 interaction lead, re-fit on n=7,104 (doubled)**: the EE-D×ILD
+interaction is now marginally significant (coef −0.246, p=0.049) with a
+marginally positive EE-D main effect (+0.243, p=0.041) — same coherent pattern as
+§8 (at low ILD, less-fair rankings trend toward higher utility; the effect
+cancels around ILD_norm≈0.99, which is where most of the data lives — hence the
+~zero average EE-D effect). R² remains ~0.006 throughout: whatever structure is
+here, it explains almost nothing of utility variance. Still lead-grade, not
+conclusion-grade.
+
+**Where this leaves the research question** (proposal: "does fairness directly
+improve RAG performance, or does the gain come from the diversity it introduces?"):
+on this replication's evidence — (a) fairness (EE-D) has no direct utility effect;
+(b) at matched diversity, randomization-based fair reranking (PL) adds nothing
+over explicit-diversity reranking (MMR); (c) diversity itself has small,
+task-dependent effects (helps classification, mildly hurts generation), not a
+uniform benefit; (d) so the paper's "fair rankings can maintain or even improve
+quality" reads, in this setup, as "fairness interventions are approximately
+utility-neutral, and what little movement exists is attributable to their
+diversity side-effect, whose sign depends on the task." The remaining open lead
+is the low-ILD conditional EE-D effect (Finding 4).

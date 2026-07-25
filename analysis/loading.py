@@ -86,6 +86,27 @@ def existing_setting_ids(run_dirs: Optional[Iterable[str]] = None) -> Set[str]:
     return {r.get("setting_id") for r in rows if r.get("setting_id")}
 
 
+def select_best_precision(df):
+    """
+    Some (lamp_num, pl_alpha) pairs exist at more than one pl_samples (N) value -
+    e.g. this repo's pl_alpha_sweep_n30 experiment re-ran some alphas at N=30 while
+    others only ever got N=10. Mixing both precisions for the same (task, alpha) in
+    one analysis would silently double-count that condition and blend two different
+    noise levels. Keep only the highest-pl_samples row per (lamp_num, pl_alpha);
+    non-"pl" rows (deterministic/mmr, which don't have a pl_samples axis) pass
+    through untouched.
+    """
+    import pandas as pd
+
+    is_pl = df["rerank_method"] == "pl"
+    pl_df = df[is_pl]
+    if pl_df.empty:
+        return df.copy()
+    best_samples = pl_df.groupby(["lamp_num", "pl_alpha"])["pl_samples"].transform("max")
+    keep_pl = pl_df["pl_samples"] == best_samples
+    return pd.concat([df[~is_pl], pl_df[keep_pl]], ignore_index=True)
+
+
 def load_relevance_mapping(lamp_num: int, generator_name: str):
     """Load the qid/pid/relevance_label TSV for one LaMP task's utility labels."""
     import pandas as pd
