@@ -450,3 +450,60 @@ quality" reads, in this setup, as "fairness interventions are approximately
 utility-neutral, and what little movement exists is attributable to their
 diversity side-effect, whose sign depends on the task." The remaining open lead
 is the low-ILD conditional EE-D effect (Finding 4).
+
+## 10. Update (2026-07-25): the Contriever generalization sweep
+
+**What ran**: the full BM25 design replicated on Contriever — deterministic + MMR
+λ∈{0.15,0.3,0.45,0.55,0.7,0.85,1.0} + PL α∈{1,2,4,8} at N=10, all 7 LaMP tasks,
+nq=100, seed=42. 84 new runs (175 total), 31,248 generation units, 224.5 min.
+Retrieval precompute (~50 min) + the run were done deliberately on **Balance
+Mode** after the chassis thermally saturated on Performance (87°C, sw-throttle
+active, ~117W — see the updated [[gpu-power-profile-gotcha]] policy: Balance's
+~80W is roughly this chassis's sustainable envelope anyway, so the sustained-run
+cost is modest). λ=1.0 reproduced deterministic **exactly** on all 7 tasks on
+this ranker too. Analysis: `experiments/analyze_mmr_sweep.py`, now ranker-aware
+(loops per-ranker sections over BM25 and Contriever, pooled interaction re-fit).
+Note: per-query normalization now pools both rankers' rows per (task, qid) group,
+so §9's BM25 numbers shift by ±0.01-0.02 when recomputed — qualitatively
+unchanged, but §9 and §10 tables are not digit-for-digit comparable.
+
+**Hypothesis that failed**: the stated motivation for choosing Contriever — dense
+retrieval pools would be lexically more diverse, widening the λ→ILD manipulation
+range — was wrong. Ranges are nearly identical to BM25's (0.02-0.08 on six tasks,
+0.23 on LaMP-6). In hindsight the reason is structural: LaMP reranks documents
+from a single user's own profile, so pool homogeneity is intrinsic to the data,
+not to the retriever. Widening the manipulation would require a different
+corpus/benchmark (e.g. TREC-RAG), not a different ranker.
+
+**Generalization results — the three headline findings on a second ranker**:
+1. **Fairness has no direct utility effect — replicates.** Pooled two-ranker
+   Model 2 (n=13,228): coef(EE-D)=+0.023, p=0.051 — still marginal/near-zero.
+2. **At matched diversity, PL adds nothing over MMR — replicates.** Contriever
+   per-task n-weighted deltas: +0.016/−0.013/+0.013/+0.006 (tasks 4-7; tasks 1-3
+   had no valid matched bins after normalization pruning) — small, sign-mixed,
+   no consistent advantage, same as BM25.
+3. **Diversity's effect is task-dependent — replicates in pattern, and the pooled
+   negative does NOT replicate.** Contriever within-MMR pooled: coef(ILD)=−0.072,
+   p=0.25 (vs BM25's −0.247, p=1.7e-05). Per task: LaMP-2's positive diversity
+   effect is now *significant* (+2.66, p=0.026; was +2.53, p=0.069 on BM25) and
+   the raw table agrees (EU 0.17→0.22 from λ=1.0 to λ=0.15); generation tasks
+   flat-to-negative (LaMP-5: 0.202→0.181; LaMP-6: 0.161→0.133). This strengthens
+   the §9 interpretation: BM25's pooled negative was substantially cross-task
+   composition. There is no uniform "diversity is good/bad" law — classification
+   benefits, generation mildly suffers.
+
+**The interaction lead graduated.** EE-D×ILD on the pooled two-ranker dataset
+(n=13,228): coef(EE-D)=+0.326 (p=0.00015), coef(EE-D×ILD)=−0.327 (p=0.00038) —
+from p=0.050 (§8) to p=0.049 (§9) to p<0.001 with each doubling of data, same
+coherent pattern throughout (at low diversity, less-fair rankings trend toward
+higher utility; the effect cancels at ILD≈1, where most data lives). R² remains
+~0.003, so this is a statistically robust but practically tiny structure —
+honest framing: a real, replicable second-order effect, not a driver of RAG
+quality.
+
+**Bottom line for the research question**: all three §9 conclusions survive
+their first generalization test. Fairness is utility-neutral on both a sparse
+and a dense retriever; its small side-effects run through diversity; diversity's
+sign depends on task type. The one thing two rankers could not fix — the narrow
+ILD manipulation range — is a property of the LaMP benchmark itself, and is the
+honest boundary of what this project's data can say.
