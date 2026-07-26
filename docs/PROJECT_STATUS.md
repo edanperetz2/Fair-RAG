@@ -1,7 +1,6 @@
 # Project Status & Handoff
 
-Written for Idan Peretz, picking this project back up after project partner Avi Simkin
-became unavailable. This document reconstructs what was tried, in what order, what's
+This document reconstructs what was tried, in what order, what's
 still open, and how to continue — based on the project proposal, full git history
 (including two abandoned branches recovered from local git objects), and a read-through
 of all three notebooks and the current codebase.
