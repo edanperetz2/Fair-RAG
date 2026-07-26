@@ -45,20 +45,27 @@ print(f"Query rows (best-precision deduped): {len(query_df)}")
 
 query_norm_df = normalize_query_rows(query_df)
 
-sweep_rankers = sorted(
+sweep_pairs = sorted(
     macro_df.loc[macro_df["rerank_method"] == "mmr"]
-    .groupby("ranker")["mmr_lambda"].nunique()
-    .loc[lambda s: s >= 3].index
+    .groupby(["generator_name", "ranker"])["mmr_lambda"].nunique()
+    .loc[lambda s: s >= 3].index.tolist()
 )
-print(f"Rankers with MMR-sweep data: {sweep_rankers}")
+print(f"(generator, ranker) pairs with MMR-sweep data: {sweep_pairs}")
 
-for ranker in sweep_rankers:
-    tag = ranker.upper()
-    r_macro = macro_df[macro_df["ranker"] == ranker]
+print("\n" + "=" * 80)
+print("0. GENERATOR HEADROOM CHECK: deterministic-run raw EU per task, by generator")
+print("=" * 80)
+det_macro_all = macro_df[macro_df["rerank_method"] == "deterministic"]
+headroom = det_macro_all.pivot_table(index="lamp_num", columns=["generator_name", "ranker"], values="expected_utility")
+print(headroom.round(4).to_string())
+
+for generator, ranker in sweep_pairs:
+    tag = f"{generator}/{ranker.upper()}"
+    r_macro = macro_df[(macro_df["ranker"] == ranker) & (macro_df["generator_name"] == generator)]
     mmr_macro = r_macro[r_macro["rerank_method"] == "mmr"].copy()
 
     print("\n" + "#" * 80)
-    print(f"# RANKER: {tag}")
+    print(f"# {tag}")
     print("#" * 80)
 
     print("\n" + "=" * 80)
@@ -91,7 +98,10 @@ for ranker in sweep_rankers:
     print("\n" + "=" * 80)
     print(f"3. [{tag}] CORE TEST: within-MMR regression EU_norm ~ ILD_norm (EE-D fixed)")
     print("=" * 80)
-    mmr_norm = query_norm_df[(query_norm_df["rerank_method"] == "mmr") & (query_norm_df["ranker"] == ranker)].copy()
+    mmr_norm = query_norm_df[
+        (query_norm_df["rerank_method"] == "mmr") & (query_norm_df["ranker"] == ranker)
+        & (query_norm_df["generator_name"] == generator)
+    ].copy()
     print(f"MMR query-level rows: {len(mmr_norm)}")
     pooled = fit_ols(mmr_norm, ["avg_ild_jaccard_norm"], "expected_utility_norm")
     print(f"\nPooled (all 7 tasks): coef(ILD) = {pooled['coef']['avg_ild_jaccard_norm']:+.4f} "
@@ -111,6 +121,7 @@ for ranker in sweep_rankers:
     print("=" * 80)
     pl_mmr_norm = query_norm_df[
         (query_norm_df["rerank_method"].isin(["pl", "mmr"])) & (query_norm_df["ranker"] == ranker)
+        & (query_norm_df["generator_name"] == generator)
     ].dropna(subset=["avg_ild_jaccard_norm", "expected_utility_norm"])
     if pl_mmr_norm[pl_mmr_norm["rerank_method"] == "pl"].empty:
         print("No PL runs for this ranker - skipping.")
@@ -139,7 +150,23 @@ for ranker in sweep_rankers:
         print(weighted.round(4).to_string())
 
 print("\n" + "#" * 80)
-print("# POOLED (ALL RANKERS)")
+print("# INTERACTION MODELS PER GENERATOR")
+print("#" * 80)
+for generator in sorted(query_norm_df["generator_name"].dropna().unique()):
+    g_df = query_norm_df[query_norm_df["generator_name"] == generator].dropna(
+        subset=["ee_disparity_norm", "avg_ild_jaccard_norm", "expected_utility_norm"]
+    ).copy()
+    g_df["ee_d_x_ild"] = g_df["ee_disparity_norm"] * g_df["avg_ild_jaccard_norm"]
+    gm2 = fit_ols(g_df, ["ee_disparity_norm", "avg_ild_jaccard_norm"], "expected_utility_norm")
+    gm3 = fit_ols(g_df, ["ee_disparity_norm", "avg_ild_jaccard_norm", "ee_d_x_ild"], "expected_utility_norm")
+    print(f"\n[{generator}] n={gm3['n']}")
+    print(f"  M2 coef(EE-D)={gm2['coef']['ee_disparity_norm']:+.4f} (p={gm2['p_value']['ee_disparity_norm']:.3g}), "
+          f"coef(ILD)={gm2['coef']['avg_ild_jaccard_norm']:+.4f} (p={gm2['p_value']['avg_ild_jaccard_norm']:.3g})")
+    print(f"  M3 coef(EE-D)={gm3['coef']['ee_disparity_norm']:+.4f} (p={gm3['p_value']['ee_disparity_norm']:.3g}), "
+          f"coef(EE-DxILD)={gm3['coef']['ee_d_x_ild']:+.4f} (p={gm3['p_value']['ee_d_x_ild']:.3g})")
+
+print("\n" + "#" * 80)
+print("# POOLED (ALL GENERATORS + RANKERS)")
 print("#" * 80)
 print("\n" + "=" * 80)
 print("5. INTERACTION RE-FIT: EU ~ EE-D + ILD + EE-D:ILD on everything")

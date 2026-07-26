@@ -507,3 +507,64 @@ and a dense retriever; its small side-effects run through diversity; diversity's
 sign depends on task type. The one thing two rankers could not fix — the narrow
 ILD manipulation range — is a property of the LaMP benchmark itself, and is the
 honest boundary of what this project's data can say.
+
+## 11. Update (2026-07-26): the flanT5Base 2x2 grid — the generator axis changes the story
+
+**What ran**: the complete Small design replicated on flanT5Base (250M params,
+~3.2x Small) — deterministic + MMR λ∈{0.15..1.0} + PL α∈{1,2,4,8} at N=10, all 7
+LaMP tasks, **both** BM25 and Contriever — completing a full 2×2 grid (generator
+size × retrieval paradigm). 168 new runs (343 total), 67,200 generation units,
+571 min overnight, zero failures. λ=1.0 reproduced deterministic exactly on all
+14 (ranker, task) pairs. Note: Base's utility-label dataset is its own filtered
+query set (per the paper's design), so Small-vs-Base comparisons are
+generator-level contrasts, not per-query pairs. Two operational notes for the
+record: the first launch attempt (a scheduled task) was blocked and then killed
+by an unnoticed charger disconnection (schtasks' default AC-power conditions +
+critical-battery sleep — full timeline in the power-event log); and an HF cache
+layout mismatch (`HF_HOME`-style `hub/` vs `PromptLM`'s `cache_dir` layout) was
+found and fixed. Analysis: `experiments/analyze_mmr_sweep.py`, now looping
+(generator, ranker) cells with a per-generator interaction re-fit.
+
+**Finding 0 — the floor effect was real.** Deterministic-run EU on Base vs Small:
+LaMP-1 0.72 vs 0.12 (6x), LaMP-3 0.67 vs 0.46, LaMP-6/7 ~+35%. The weak
+generator genuinely had little headroom to express reranking effects.
+
+**Generator-ROBUST findings (survived all four cells):**
+- **PL adds ~nothing over MMR at matched diversity.** Per-task n-weighted deltas
+  stay small and sign-mixed on Base (BM25: +0.010/−0.011/−0.031/−0.024;
+  Contriever: +0.026/−0.002/−0.003/+0.022). The proposal's core claim — whatever
+  fair reranking does for utility, explicit diversity does about as well —
+  holds at both generator sizes and both retrieval paradigms. This is the
+  project's most robust conclusion.
+
+**Generator-DEPENDENT findings (the story changed at 250M):**
+1. **Diversity's effect flipped sign.** Within-MMR EU~ILD (fairness held fixed):
+   Small was negative/ns (BM25 −0.237 p=3e-05; Contriever −0.072 ns) → Base is
+   **positive and significant on both rankers** (BM25 +0.126 p=0.012; Contriever
+   +0.214 p=7e-05). The stronger generator *benefits* from diverse retrieved
+   contexts where the weaker one was confused by them. §9-10's "diversity mildly
+   hurts generation tasks" was a weak-generator artifact.
+2. **A real fairness–utility tradeoff emerged.** EE-D's main effect on Base:
+   +0.143 (p=6e-21) — less-fair (higher-disparity) rankings associate with
+   higher utility; on Small this was ~0 (p=0.05). In our replication, the
+   fairness-utility tradeoff the original paper argued against is
+   generator-dependent: invisible at 77M, measurable at 250M. (Magnitude
+   caution: the matched-diversity comparison shows the *net* PL-vs-MMR cost
+   stays small; the regression-level effect partly reflects cross-task
+   composition. Both readings are reported.)
+3. **The EE-D×ILD interaction did not replicate on Base** (p=0.65 vs Small's
+   p=0.0004 at matched n). The §10 "graduated lead" is hereby demoted: it is a
+   Small-generator-specific structure, not a general law. The lead-grade framing
+   §10 insisted on proved warranted.
+
+**Where this leaves the research question** (final empirical position for the
+report): (a) the one fully generator- and ranker-robust result is that
+randomization-based fair reranking provides no utility benefit beyond its
+diversity side-effect — diversity is the only active ingredient; (b) whether
+that ingredient helps or hurts depends on the *generator's capacity*: harmful/
+neutral at 77M, helpful at 250M; (c) fairness itself costs utility at 250M in
+regression terms, though the matched-diversity net cost is small; (d) the
+honest scaling question — does the tradeoff keep growing with generator size? —
+is exactly what an XXL-class run would answer and is out of this project's
+compute reach (labels exist for flanT5XXL; the model does not fit an 8GB GPU).
+That is the report's future-work section.
