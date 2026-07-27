@@ -50,3 +50,7 @@ __pycache__/
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 .idea/
+# Report figures are deliverables (regenerable via experiments/make_report_figures.py,
+# but versioned so the report and its figures travel together)
+!report/figures/*.png
+!report/figures/*.pdf
