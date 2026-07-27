@@ -567,3 +567,55 @@ honest scaling question — does the tradeoff keep growing with generator size? 
 is exactly what an XXL-class run would answer and is out of this project's
 compute reach (labels exist for flanT5XXL; the model does not fit an 8GB GPU).
 That is the report's future-work section.
+
+## 12. CORRECTION (2026-07-27): `select_best_precision` dedup bug and revised findings
+
+While preparing the report figures, a question about which tasks feed each
+figure exposed a data-loading bug that had silently skewed every pooled
+analysis in sections 9-11 that included PL rows. `analysis/loading.py::
+select_best_precision` deduplicated PL runs by `(lamp_num, pl_alpha)` only -
+a key from the era when the analysis had a single (generator, ranker) cell.
+Because the `pl_alpha_sweep_n30` experiment re-ran Small/BM25's LaMP-1..3
+(and part of 4) at `pl_samples=30`, the "keep highest-N" rule deleted the
+N=10 PL runs of the OTHER THREE cells for those tasks. Effect: Base and
+Small/Contriever pooled analyses had no PL rows for LaMP-1..3 while their
+deterministic/MMR rows did include those tasks (a task-composition asymmetry),
+and - because `normalize_query_rows` normalizes per query across all loaded
+lists - even MMR rows' normalized values (and NaN patterns) were distorted.
+Fixed by keying the dedup on `(generator_name, ranker, lamp_num, pl_alpha)`.
+Recovered rows: 28,120 -> 32,424 query rows; 291 -> 336 macro rows.
+
+**Findings that survive unchanged:**
+- Fairness never improves utility: 0/24 paired det-vs-fair comparisons positive;
+  none significant after Holm (Wilcoxon, `experiments/significance_tests.py` A).
+- lambda=1.0 sanity, headroom/floor-effect numbers, lambda->ILD manipulation
+  (macro-level, unaffected by the dedup).
+- The narrow-ILD-range benchmark property.
+
+**Findings REVISED by the fix:**
+- "Diversity's effect flips sign with generator size" is WRONG. Corrected:
+  diversity's harm ATTENUATES with generator size. Within-MMR pooled coef(ILD):
+  Small/BM25 -0.258 (p=6e-06), Small/Contriever -0.096 (ns), Base/BM25 -0.077
+  (ns), Base/Contriever -0.055 (ns). The generator difference is still formally
+  significant (ILD x is_base +0.185, p=1.3e-04, n=17,864) but the Base-positive
+  coefficients (+0.126/+0.214) in section 11 were artifacts of the missing-task
+  composition.
+- The Base fairness-utility tradeoff shrinks from +0.143 (p=6e-21) to +0.038
+  (p=2.8e-04) in the per-generator M2; the pooled EE-D coefficient is +0.027
+  (p=2.3e-04). A small tradeoff is real and significant, but "grows with
+  generator size" is NOT significant (EE-D x is_base p=0.20).
+- NEW finding the old data masked: at matched diversity, PL costs a small but
+  significant amount vs MMR on Base (is_pl -0.021, p=0.006 BM25; -0.021,
+  p=0.010 Contriever; ns on Small) - the randomization component itself has a
+  measurable cost on the stronger generator.
+
+**Revised final empirical position for the report:** (a) fair reranking never
+improves RAG utility anywhere in the grid - the original paper's "in many cases
+even outperform" does not replicate; (b) diversity, not fairness, is the active
+ingredient, and its own effect is harmful at 77M fading to neutral at 250M;
+(c) a small but statistically solid fairness-utility tradeoff exists (visible
+in pooled regressions; individual settings' drops are uniformly negative but
+not Holm-significant), plus a small significant PL-vs-MMR residual cost on
+Base; (d) whether any of this grows at XXL scale remains the future-work
+question. The report should cite this correction openly - it is a methods
+lesson (composition bugs from partial-coverage dedup) as much as a result.

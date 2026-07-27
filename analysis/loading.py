@@ -90,11 +90,17 @@ def select_best_precision(df):
     """
     Some (lamp_num, pl_alpha) pairs exist at more than one pl_samples (N) value -
     e.g. this repo's pl_alpha_sweep_n30 experiment re-ran some alphas at N=30 while
-    others only ever got N=10. Mixing both precisions for the same (task, alpha) in
+    others only ever got N=10. Mixing both precisions for the same condition in
     one analysis would silently double-count that condition and blend two different
-    noise levels. Keep only the highest-pl_samples row per (lamp_num, pl_alpha);
+    noise levels. Keep only the highest-pl_samples row per experiment condition;
     non-"pl" rows (deterministic/mmr, which don't have a pl_samples axis) pass
     through untouched.
+
+    The condition key must include every axis the experiment grid varies over.
+    Grouping by (lamp_num, pl_alpha) alone - as this function originally did when
+    the analysis had a single (generator, ranker) cell - silently deleted the
+    other three cells' N=10 PL runs for any (task, alpha) that Small/BM25 had
+    re-run at N=30.
     """
     import pandas as pd
 
@@ -102,7 +108,8 @@ def select_best_precision(df):
     pl_df = df[is_pl]
     if pl_df.empty:
         return df.copy()
-    best_samples = pl_df.groupby(["lamp_num", "pl_alpha"])["pl_samples"].transform("max")
+    key_cols = [c for c in ("generator_name", "ranker", "lamp_num", "pl_alpha") if c in pl_df.columns]
+    best_samples = pl_df.groupby(key_cols)["pl_samples"].transform("max")
     keep_pl = pl_df["pl_samples"] == best_samples
     return pd.concat([df[~is_pl], pl_df[keep_pl]], ignore_index=True)
 
