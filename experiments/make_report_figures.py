@@ -314,7 +314,7 @@ def fig5_matched_diversity():
     ax.axhspan(-0.05, 0.05, color="gray", alpha=0.12, zorder=0)
     ax.set_xticks(x, [f"LaMP-{int(t)}" for t in all_tasks])
     ax.set_ylabel("$\\Delta$EU$_{norm}$ (PL $-$ MMR)\nat matched ILD, per task")
-    ax.set_title("At matched diversity, stochastic-fair PL adds $\\approx$ nothing over deterministic MMR", pad=44)
+    ax.set_title("PL vs MMR utility at matched diversity, per task: small, mostly negative residuals", pad=44)
     ax.legend(ncols=2, frameon=False, loc="lower center", bbox_to_anchor=(0.5, 1.0), fontsize=7.5)
     save(fig, "fig5_matched_diversity")
 
@@ -391,6 +391,77 @@ def fig7_eu_by_diversity_level():
     save(fig, "fig7_eu_by_diversity_level")
 
 
+# ---------------------------------------------------------------- figure 8
+def fig8_task_sensitivity():
+    """Leave-one-task-out robustness of the three core pooled statistics
+    (mirrors experiments/task_sensitivity.py). Top row: coefficient when each
+    task is dropped, vs the full-sample estimate. Bottom row: each task alone.
+    The one fragile spot - the diversity effect without LaMP-6 - stands out."""
+    qd = query_norm_df.copy()
+    qd["is_base"] = (qd["generator_name"] == "flanT5Base").astype(float)
+    qd["is_contriever"] = (qd["ranker"] == "contriever").astype(float)
+    qd["is_pl"] = (qd["rerank_method"] == "pl").astype(float)
+
+    def fit_with_dummies(sub, target, controls):
+        sub = sub.dropna(subset=[c for c in {target, *controls, "expected_utility_norm"}
+                                 if c in sub.columns]).copy()
+        feats = [target] + list(controls)
+        for t in sorted(sub["lamp_num"].dropna().unique())[1:]:
+            col = f"task_{int(t)}"
+            sub[col] = (sub["lamp_num"] == t).astype(float)
+            feats.append(col)
+        m = fit_ols(sub, feats, "expected_utility_norm")
+        return m["coef"][target], ci95(m, target), m["p_value"][target]
+
+    SPECS = [
+        ("Fairness cost\ncoef(EE-D), all lists", qd, "ee_disparity_norm",
+         ["avg_ild_jaccard_norm", "is_base", "is_contriever"]),
+        ("Diversity effect\ncoef(ILD), MMR only", qd[qd["rerank_method"] == "mmr"],
+         "avg_ild_jaccard_norm", ["is_base", "is_contriever"]),
+        ("PL residual vs MMR\ncoef(is_pl), ILD matched", qd[qd["rerank_method"].isin(["pl", "mmr"])],
+         "is_pl", ["avg_ild_jaccard_norm", "is_base", "is_contriever"]),
+    ]
+    tasks = sorted(qd["lamp_num"].dropna().unique())
+
+    fig, axes = plt.subplots(2, 3, figsize=(7.4, 5.2))
+    for col_i, (title, df, target, controls) in enumerate(SPECS):
+        full_c, full_ci, full_p = fit_with_dummies(df, target, controls)
+
+        ax = axes[0][col_i]
+        ax.axhline(0, color="gray", linewidth=0.8, linestyle="--")
+        ax.axhspan(full_c - full_ci, full_c + full_ci, color="#4878CF", alpha=0.12)
+        ax.axhline(full_c, color="#4878CF", linewidth=1.2)
+        for i, t in enumerate(tasks):
+            c, ci, p = fit_with_dummies(df[df["lamp_num"] != t], target, controls)
+            fragile = (p >= 0.05) != (full_p >= 0.05)
+            color = "#D65F5F" if fragile else "black"
+            ax.errorbar([i], [c], yerr=[ci], fmt="o", ms=4, color=color,
+                        ecolor=color, elinewidth=1.1, capsize=3)
+        ax.set_xticks(range(len(tasks)), [f"{int(t)}" for t in tasks])
+        ax.set_title(title, fontsize=9)
+        if col_i == 0:
+            ax.set_ylabel("Coefficient, task dropped\n(band = full-sample 95% CI)")
+
+        ax = axes[1][col_i]
+        ax.axhline(0, color="gray", linewidth=0.8, linestyle="--")
+        for i, t in enumerate(tasks):
+            try:
+                c, ci, p = fit_with_dummies(df[df["lamp_num"] == t], target, controls)
+            except ValueError:
+                continue
+            ax.errorbar([i], [c], yerr=[ci], fmt="s", ms=4, color="black",
+                        ecolor="black", elinewidth=1.1, capsize=3)
+        ax.set_xticks(range(len(tasks)), [f"{int(t)}" for t in tasks])
+        ax.set_xlabel("LaMP task")
+        if col_i == 0:
+            ax.set_ylabel("Coefficient, task alone")
+    fig.suptitle("Task-robustness: fairness cost and PL residual survive any exclusion;\n"
+                 "the pooled diversity effect rests on LaMP-6 (red = significance lost when dropped)",
+                 fontsize=9.5, y=1.0)
+    fig.tight_layout()
+    save(fig, "fig8_task_sensitivity")
+
+
 # ---------------------------------------------------------------- figure 6
 def fig6_generator_axis():
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(6.6, 2.9), sharex=True)
@@ -430,4 +501,5 @@ fig4_ild_signflip()
 fig5_matched_diversity()
 fig6_generator_axis()
 fig7_eu_by_diversity_level()
+fig8_task_sensitivity()
 print(f"\nAll figures written to {OUT_DIR}")
