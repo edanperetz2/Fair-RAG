@@ -49,13 +49,14 @@ def build_cfgs(
     include_deterministic=True,
     include_pl=True,
     include_mmr=True,
+    query_offset=0,
 ):
     cfgs = []
     for lamp_num in lamp_nums:
         for generator_name in generators:
             for ranker in rankers:
                 base = dict(
-                    dataset=DatasetConfig(dataset_type="lamp", lamp_num=lamp_num, lamp_split_type="user", num_queries=num_queries),
+                    dataset=DatasetConfig(dataset_type="lamp", lamp_num=lamp_num, lamp_split_type="user", num_queries=num_queries, query_offset=query_offset),
                     retrieval=RetrievalConfig(ranker=ranker, top_k=top_k),
                     generation=GenerationConfig(generator_name=generator_name, multi_gpu=False),
                     metrics=MetricsConfig(compute_ee=True, compute_eu=True, compute_diversity=True),
@@ -80,7 +81,10 @@ if __name__ == "__main__":
     parser.add_argument("--smoke-test", action="store_true")
     parser.add_argument("--batch-id", default=None)
     parser.add_argument("--lamp-tasks", type=int, nargs="+", default=DEFAULT_LAMP_TASKS)
-    parser.add_argument("--num-queries", type=int, default=DEFAULT_NUM_QUERIES)
+    parser.add_argument("--num-queries", type=str, default=str(DEFAULT_NUM_QUERIES),
+                         help="int, or 'all' to process every available query (respects --query-offset)")
+    parser.add_argument("--query-offset", type=int, default=0,
+                         help="skip this many queries (in dataset file order) before starting")
     parser.add_argument("--generators", nargs="+", default=["flanT5Small"])
     parser.add_argument("--rankers", nargs="+", default=["bm25"])
     parser.add_argument("--top-k", type=int, default=5)
@@ -97,9 +101,10 @@ if __name__ == "__main__":
         cfgs = build_cfgs([1], num_queries=2, generators=["flanT5Small"], rankers=["bm25"])
         batch_id = args.batch_id or "smoke_test_scoped_run"
     else:
+        num_queries = None if args.num_queries.lower() == "all" else int(args.num_queries)
         cfgs = build_cfgs(
             args.lamp_tasks,
-            num_queries=args.num_queries,
+            num_queries=num_queries,
             generators=args.generators,
             rankers=args.rankers,
             top_k=args.top_k,
@@ -110,6 +115,7 @@ if __name__ == "__main__":
             include_deterministic=not args.no_deterministic,
             include_pl=not args.no_pl,
             include_mmr=not args.no_mmr,
+            query_offset=args.query_offset,
         )
         batch_id = args.batch_id or "scoped_experiment"
 

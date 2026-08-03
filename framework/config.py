@@ -28,6 +28,7 @@ class DatasetConfig:
     lamp_num: int = 4                   # LaMP task 1-7
     lamp_split_type: str = "user"       # "user" | "time"
     num_queries: Optional[int] = 50     # None = process all available queries
+    query_offset: int = 0               # skip this many queries (in dataset file order) before starting
 
 
 @dataclass
@@ -112,9 +113,10 @@ def setting_id(cfg: RunConfig) -> str:
         rerank_str = "det"
 
     nq = f"nq{d.num_queries}" if d.num_queries is not None else "nqall"
+    off = f"__off{d.query_offset}" if d.query_offset else ""
     return (
         f"{d.dataset_type}{d.lamp_num}_{d.lamp_split_type}"
-        f"__{g.generator_name}__{r.ranker}__{rerank_str}__k{r.top_k}__{nq}"
+        f"__{g.generator_name}__{r.ranker}__{rerank_str}__k{r.top_k}__{nq}{off}"
         f"__seed{rr.seed}"
     )
 

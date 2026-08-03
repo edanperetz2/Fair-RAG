@@ -84,6 +84,7 @@ class LaMPDataset(DatasetHandler):
         self.lamp_num = dataset_config.lamp_num
         self.split_type = dataset_config.lamp_split_type
         self.num_queries = dataset_config.num_queries
+        self.query_offset = dataset_config.query_offset
         self.generator_name = generation_config.generator_name
         self.top_k = retrieval_config.top_k
         self.lamp_dir = f"lamp_utility_labels_{self.generator_name}"
@@ -125,7 +126,9 @@ class LaMPDataset(DatasetHandler):
 
     def iter_queries(self):
         count = 0
-        for qid in self._ordered_qids:
+        for idx, qid in enumerate(self._ordered_qids):
+            if idx < self.query_offset:
+                continue
             if self.num_queries is not None and count >= self.num_queries:
                 break
             entry = self._inputs[qid]
@@ -163,9 +166,10 @@ class LaMPDataset(DatasetHandler):
             return "rouge-l", get_metric_fn_rouge_L()
 
     def total_queries(self) -> int:
+        available = max(0, len(self._ordered_qids) - self.query_offset)
         if self.num_queries is None:
-            return len(self._ordered_qids)
-        return min(self.num_queries, len(self._ordered_qids))
+            return available
+        return min(self.num_queries, available)
 
 
 # ---------------------------------------------------------------------------
