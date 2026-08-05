@@ -1,0 +1,12 @@
+{
+  "n_queries": 192,
+  "metric_name": "acc",
+  "expected_utility": 0.11979166666666667,
+  "max_utility": 0.11979166666666667,
+  "min_utility": 0.11979166666666667,
+  "avg_ild_jaccard": 0.913150259137399,
+  "avg_jaccard_mean": 0.0868497408626014,
+  "ee_disparity": 0.9979166666666668,
+  "ee_relevance": 0.2890751770833332,
+  "ee_difference": 0.764442364583333
+}
