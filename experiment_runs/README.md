@@ -8,6 +8,27 @@ keeping alongside the code that produced them. This is a targeted, per-batch
 exception, not a change to the default policy — new runs will keep being ignored
 unless explicitly committed the same way.
 
+## Current status (2026-08-05) — IN PROGRESS, not yet fully complete
+
+The nested one-directory-per-setting structure described below is the
+**target end state**, reached so far for **flanT5Base (all 7 tasks, done)**
+and **flanT5Small LaMP 1 and 2 (done)**. The rest of flanT5Small is mid-run:
+
+| flanT5Small task | status |
+|---|---|
+| 1 | done (51/51 - dataset only has 51 queries total, already exhausted) |
+| 2 | done (192/192), merged |
+| 3 | in progress locally, not yet committed - 3/12 bm25 settings done (211/211 each), 1 partial (60/211) |
+| 4 | in progress locally, not yet committed - 11/12 bm25 settings done (733/733 each), 1 partial (35/733) |
+| 5, 6, 7 | not started |
+
+Run order for the remaining tasks is **4 → 3 → 7 → 5 → 6** (changed mid-run
+from the original 2-7 sequential order). LaMP3/LaMP4's partial progress is
+sitting on local disk only (uncommitted, gitignored) - safe to resume, not
+lost, but not yet reflected in `INDEX.md` or on GitHub. See the relaunch
+command and full resume plan in project memory / commit history around
+2026-08-05 for exact next steps.
+
 **Browsing tip:** open **[`INDEX.md`](INDEX.md)** for a single sortable/searchable
 table (one row per run, auto-generated from every `manifest.json` by
 `experiments/generate_run_index.py`) instead of navigating folders by hand.
@@ -86,17 +107,22 @@ from an earlier `select_best_precision` dedup-bug investigation that used
 deleted and, where no `pl_samples=10` baseline existed at all (8 of the 15
 cells), regenerated at `pl_samples=10` before the full-coverage scale-up ran.
 
-## Per-task total query counts (same for both generators — shared dataset)
+## Per-task total query counts (differ by generator — the utility-label
+## pipeline filters differently per generator, so dataset sizes diverge)
 
-| LaMP task | total queries |
-|---|---|
-| 1 | 232 |
-| 2 | 280 |
-| 3 | 378 |
-| 4 | 827 |
-| 5 | 759 |
-| 6 | 783 |
-| 7 | 211 |
+| LaMP task | flanT5Base total | flanT5Small total |
+|---|---|---|
+| 1 | 232 | 51 |
+| 2 | 280 | 192 |
+| 3 | 378 | 311 |
+| 4 | 827 | 833 |
+| 5 | 759 | 826 |
+| 6 | 783 | 760 |
+| 7 | 211 | 365 |
+
+Computed directly from `LaMPDataset.total_queries()` per generator - do not
+assume symmetry between the two generators' dataset sizes (an earlier
+estimate wrongly assumed they matched).
 
 ## Finding a specific run
 
