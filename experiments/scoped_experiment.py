@@ -55,12 +55,14 @@ def build_cfgs(
     for lamp_num in lamp_nums:
         for generator_name in generators:
             for ranker in rankers:
+                run_dir = os.path.join(ROOT, "experiment_runs", generator_name, f"lamp{lamp_num}", ranker)
                 base = dict(
                     dataset=DatasetConfig(dataset_type="lamp", lamp_num=lamp_num, lamp_split_type="user", num_queries=num_queries, query_offset=query_offset),
                     retrieval=RetrievalConfig(ranker=ranker, top_k=top_k),
                     generation=GenerationConfig(generator_name=generator_name, multi_gpu=False),
                     metrics=MetricsConfig(compute_ee=True, compute_eu=True, compute_diversity=True),
                     checkpoint=CheckpointConfig(flush_every=1, report_every_queries=20),
+                    run_dir=run_dir,
                 )
                 settings = []
                 if include_deterministic:

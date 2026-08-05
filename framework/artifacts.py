@@ -93,20 +93,30 @@ class RunRegistry:
         self.base_dir = experiment_runs_dir(base_dir)
 
     def list_runs(self) -> List[Dict[str, Any]]:
+        """
+        Find every run directory under base_dir, at any depth (identified by
+        containing manifest.json directly) - supports both flat
+        (experiment_runs/{run_id}) and nested (experiment_runs/{generator}/
+        lamp{N}/{ranker}/{run_id}) layouts transparently, since a run dir is
+        always a leaf with no subdirectories.
+        """
         if not os.path.isdir(self.base_dir):
             return []
 
         runs: List[Dict[str, Any]] = []
-        for name in os.listdir(self.base_dir):
-            run_dir = os.path.join(self.base_dir, name)
-            if not os.path.isdir(run_dir):
+        for dirpath, dirnames, filenames in os.walk(self.base_dir):
+            if os.path.basename(dirpath) == "batches" and dirpath != self.base_dir:
+                dirnames[:] = []
                 continue
-            if name == "batches":
+            if "batches" in dirnames and dirpath == self.base_dir:
+                dirnames.remove("batches")
+            if "manifest.json" not in filenames:
                 continue
-            manifest = _load_manifest_safe(run_dir)
+            manifest = _load_manifest_safe(dirpath)
             if manifest is None:
                 continue
-            runs.append({"run_dir": run_dir, "manifest": manifest})
+            runs.append({"run_dir": dirpath, "manifest": manifest})
+            dirnames[:] = []
 
         runs.sort(key=_run_sort_key, reverse=True)
         return runs

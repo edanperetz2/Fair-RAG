@@ -88,7 +88,7 @@ class ExperimentRunner:
         cfg = self.cfg
         self._seed_everything()
 
-        if cfg.resume and cfg.run_id and not run_dir_exists(cfg.run_id):
+        if cfg.resume and cfg.run_id and not run_dir_exists(cfg.run_id, base_dir=cfg.run_dir):
             raise FileNotFoundError(
                 f"Cannot resume run_id '{cfg.run_id}': run directory does not exist."
             )
@@ -102,7 +102,7 @@ class ExperimentRunner:
         )
 
         run_id = self._make_run_id()
-        run_dir = make_run_dir(run_id)
+        run_dir = make_run_dir(run_id, base_dir=cfg.run_dir)
         store = ArtifactStore(run_dir)
         existing_manifest = store.get_manifest()
         store.update_manifest(

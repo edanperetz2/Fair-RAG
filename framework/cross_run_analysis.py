@@ -18,15 +18,23 @@ def experiment_runs_dir(base_dir: Optional[str] = None) -> str:
 
 
 def list_run_dirs(base_dir: Optional[str] = None) -> List[str]:
+    """
+    Find every run directory under base_dir, at any depth (a run directory is
+    identified by containing manifest.json directly). Runs may live flat
+    (experiment_runs/{run_id}) or nested (experiment_runs/{generator}/lamp{N}/
+    {ranker}/{run_id}) - both are supported transparently since a run dir is
+    always a leaf with no subdirectories, so pruning descent at the first match
+    is safe either way.
+    """
     base_path = experiment_runs_dir(base_dir)
     if not os.path.isdir(base_path):
         return []
     run_dirs: List[str] = []
-    for name in sorted(os.listdir(base_path)):
-        path = os.path.join(base_path, name)
-        if os.path.isdir(path) and os.path.exists(os.path.join(path, "manifest.json")):
-            run_dirs.append(path)
-    return run_dirs
+    for dirpath, dirnames, filenames in os.walk(base_path):
+        if "manifest.json" in filenames:
+            run_dirs.append(dirpath)
+            dirnames[:] = []
+    return sorted(run_dirs)
 
 
 def _load_json(path: str) -> Dict[str, Any]:
