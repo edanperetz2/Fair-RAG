@@ -1,0 +1,12 @@
+{
+  "n_queries": 311,
+  "metric_name": "mae",
+  "expected_utility": 0.5434083601286174,
+  "max_utility": 0.5434083601286174,
+  "min_utility": 0.5434083601286174,
+  "avg_ild_jaccard": 0.8638034548259725,
+  "avg_jaccard_mean": 0.1361965451740274,
+  "ee_disparity": 1.0,
+  "ee_relevance": 0.3725705691318329,
+  "ee_difference": 0.9360133922829585
+}

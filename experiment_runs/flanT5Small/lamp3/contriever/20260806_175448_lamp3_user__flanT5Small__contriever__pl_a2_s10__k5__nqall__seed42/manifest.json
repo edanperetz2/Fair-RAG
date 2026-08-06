@@ -1,0 +1,53 @@
+{
+  "run_id": "20260806_175448_lamp3_user__flanT5Small__contriever__pl_a2_s10__k5__nqall__seed42",
+  "setting_id": "lamp3_user__flanT5Small__contriever__pl_a2_s10__k5__nqall__seed42",
+  "config": {
+    "dataset": {
+      "dataset_type": "lamp",
+      "lamp_num": 3,
+      "lamp_split_type": "user",
+      "num_queries": null,
+      "query_offset": 0
+    },
+    "retrieval": {
+      "ranker": "contriever",
+      "top_k": 5
+    },
+    "rerank": {
+      "method": "pl",
+      "pl_alpha": 2,
+      "pl_samples": 10,
+      "mmr_lambda": 0.55,
+      "seed": 42
+    },
+    "generation": {
+      "generator_name": "flanT5Small",
+      "multi_gpu": false
+    },
+    "metrics": {
+      "compute_ee": true,
+      "compute_eu": true,
+      "compute_diversity": true
+    },
+    "checkpoint": {
+      "flush_every": 1,
+      "report_every_queries": 20
+    },
+    "resume": false,
+    "run_id": null,
+    "run_dir": null
+  },
+  "status": "completed",
+  "seed": 42,
+  "report_every_queries": 20,
+  "started_at": "2026-07-25T15:13:43",
+  "resumed_at": null,
+  "expected_queries": 311,
+  "n_queries_completed": 311,
+  "last_completed_qid": "21997",
+  "last_seen_query_index": 311,
+  "merged_from": {
+    "baseline_run_id": "20260725_151343_lamp3_user__flanT5Small__contriever__pl_a2_s10__k5__nq100__seed42",
+    "scaleup_run_id": "20260806_174829_lamp3_user__flanT5Small__contriever__pl_a2_s10__k5__nqall__off100__seed42"
+  }
+}
