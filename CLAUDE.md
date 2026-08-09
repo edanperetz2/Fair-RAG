@@ -101,6 +101,18 @@ Recursively finds every run directory (via `list_run_dirs`, at any nesting depth
 
 `experiment_runs/` is gitignored by default — run output is normally regenerable local scratch. The subset that *is* committed (both generators, all 7 LaMP tasks, both rankers, full query coverage — see `experiment_runs/README.md` for current status) lives nested as `experiment_runs/{generator}/lamp{N}/{ranker}/{run_id}/`, exactly 12 run directories per leaf (1 deterministic + 7 MMR λ + 4 PL α), each covering that task's complete query range in a single directory — not split between an original sample and a later scale-up pass. `experiment_runs/INDEX.md` is a generated, sortable index over every committed run directory (regenerate via `python experiments/generate_run_index.py` after committing new runs — it is derived data, never hand-edited). `experiments/merge_run_pairs.py` is what produces one merged directory from a query-disjoint baseline+scale-up pair (see the "Artifacts and resumability" section above for why the merge, not just a directory move, is required for correctness) — see its module docstring and `experiment_runs/README.md`'s "How full coverage was reached" section for the full mechanism.
 
+## Report (`report/`)
+
+The finished paper: `report/latex/main.tex`, compiled with Tectonic
+(`tectonic -X compile --keep-logs main.tex` from `report/latex/`) to
+`report/latex/main.pdf`, bibliography in `report/latex/references.bib`. All
+figures are generated (never hand-drawn) by `experiments/make_report_figures.py`,
+which reads committed run directories via the same `framework`/`analysis`
+loading path as the notebooks and writes PDFs (plus one PNG) to `report/figures/`
+— rerun it after any change to a figure's underlying data or plotting code, then
+recompile. `report/draft.md` is an early plain-text draft superseded by
+`report/latex/main.tex` — kept for history only, not maintained.
+
 ## Shared analysis toolkit (`analysis/`)
 
 Generic, notebook-agnostic helpers for analyzing *already-completed* runs — not for running experiments (that's `framework/`'s job). Each module is single-purpose:

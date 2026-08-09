@@ -3,8 +3,11 @@
 This repo builds on the official code for the paper
 [Towards Fair RAG: On the Impact of Fair Ranking in Retrieval-Augmented Generation](https://arxiv.org/abs/2409.11598),
 extending it to test whether fairness's benefit to RAG performance actually comes from
-the diversity it introduces. See **`docs/PROJECT_STATUS.md`** for the full project
-history and open research question, **`docs/project_proposal.pdf`** /
+the diversity it introduces. **The finished report is `report/latex/main.pdf`**
+("Fair Ranking in Retrieval-Augmented Generation: Is the Benefit Fairness, or
+Diversity in Disguise?", Idan Peretz & Avi Simkin), built from
+`report/latex/main.tex` via Tectonic; see **`docs/PROJECT_STATUS.md`** for the full
+project history and open research question, **`docs/project_proposal.pdf`** /
 **`docs/fair_rag_paper.pdf`** for the source documents, and **`CLAUDE.md`** for code
 architecture.
 

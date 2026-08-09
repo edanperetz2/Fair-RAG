@@ -1,5 +1,9 @@
 # Fair Ranking in RAG: Is the Benefit Fairness, or Diversity in Disguise?
 
+> **Superseded.** This plain-text draft predates the LaTeX report and is kept
+> only for history. The finished, submission-ready paper is
+> **[`report/latex/main.tex`](latex/main.tex)** (compiled: `report/latex/main.pdf`).
+
 *Working draft for content review — plain text, no LaTeX yet. Revised after
 reviewer round 1 — see change notes marked with 🔧.*
 

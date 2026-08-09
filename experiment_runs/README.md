@@ -16,8 +16,8 @@ generator, 12 rerank settings × 7 tasks × 2 rankers each). Verified with a
 complete audit before the final commit: every directory's row count, unique
 qid count, and manifest counters agree with that task's true total query
 count; zero `pl_samples` mismatches across all 112 PL cells; every leaf
-directory holds exactly 12 run dirs. This is the full dataset the eventual
-report will draw on.
+directory holds exactly 12 run dirs. This is the full dataset the finished
+report (`report/latex/main.pdf`) draws on.
 
 **Browsing tip:** open **[`INDEX.md`](INDEX.md)** for a single sortable/searchable
 table (one row per run, auto-generated from every `manifest.json` by

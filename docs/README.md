@@ -8,5 +8,9 @@
 - **`fair_rag_paper.pdf`** — the paper this repo's code is based on/extends
   ("Towards Fair RAG: On the Impact of Fair Ranking in Retrieval-Augmented Generation").
 
+The finished output of this project is **`report/latex/main.pdf`** (source:
+`report/latex/main.tex`) — the answer to the research question above, not a document
+in this folder.
+
 For how to actually run the code, see `README.md` at the repo root. For code
 architecture, see `CLAUDE.md` at the repo root.
