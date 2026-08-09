@@ -55,9 +55,13 @@ the `framework` package (`RunConfig`/`ExperimentRunner`/`BatchExperimentRunner`)
 see `CLAUDE.md` for the full architecture, config options, and rerank methods
 (deterministic / MMR / Plackett-Luce / PL-MMR).
 
-Results land in `experiment_runs/{run_id}/` (crash-safe, resumable — safe to re-run the
-same notebook cell if interrupted). From there, `fair_rag_diversity_story.ipynb` and
-`fair_rag_stats_exploration.ipynb` analyze completed runs.
+Results land in `experiment_runs/{run_id}/` by default (crash-safe, resumable — safe to
+re-run the same notebook cell if interrupted). From there, `fair_rag_diversity_story.ipynb`
+and `fair_rag_stats_exploration.ipynb` analyze completed runs. The committed results
+already in this repo (both generators, full query coverage, all 7 LaMP tasks) live
+nested instead, under `experiment_runs/{generator}/lamp{N}/{ranker}/{run_id}/` — see
+`experiment_runs/README.md` for that convention; `list_run_dirs`/analysis code finds
+runs at either nesting level transparently, so this doesn't require any special handling.
 
 ## Data
 

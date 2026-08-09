@@ -86,10 +86,14 @@ per setting via `experiments/merge_run_pairs.py`. That merge recomputes
 `summary.json`/`macro_summary.json` from the combined raw data (via
 `ArtifactStore.write_summary`/`write_macro_summary`) rather than concatenating
 the two passes' pre-aggregated stats — necessary because a plain average of two
-unequally-sized partial means is not the same as the true combined mean (this
-was measured directly on real data: differed by ~0.006 EU on one spot-checked
-setting). The original two-pass directories were deleted only after this
-verification; recoverable from git history if ever needed.
+unequally-sized partial means is not the same as the true combined mean (a
+naive average differed from the correct weighted merge by ~0.006 EU when first
+measured on one setting). Verified exhaustively, not just spot-checked: for
+all 312 merged directories in the final dataset, `macro_summary.json` was
+independently recomputed from that directory's own `query_summary.jsonl` and
+compared to the stored value — exact match (max deviation `0.0`) on every
+metric, every directory. The original two-pass directories were deleted only
+after per-setting verification; recoverable from git history if ever needed.
 
 flanT5Small additionally had 15 directories (LaMP 1-4, BM25 only) left over
 from an earlier `select_best_precision` dedup-bug investigation that used

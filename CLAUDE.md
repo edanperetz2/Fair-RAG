@@ -82,16 +82,24 @@ python legacy/normalize_eu.py --retriever_name splade --generator_name flanT5XXL
 
 ### Artifacts and resumability (`framework/artifacts.py`)
 
-Each run writes to `experiment_runs/{run_id}/` as append-only JSONL (crash-safe: each write is flushed + fsynced):
+Each run writes to a run directory as append-only JSONL (crash-safe: each write is flushed + fsynced):
 - `manifest.json` — run metadata, atomically replaced on each update.
 - `retrieval_lists.jsonl`, `ee_metrics.jsonl`, `llm_answers.jsonl`, `per_list_metrics.jsonl`, `query_summary.jsonl`, `progress_reports.jsonl`.
 - `summary.json` / `macro_summary.json` — written once at the end of a run.
 
-On resume (`cfg.resume=True`), `ExperimentRunner` reconstructs completed-work sets by scanning these JSONL files rather than trusting `manifest.json` counters, so partial/interrupted runs never redo completed units. `RunRegistry` (also in `artifacts.py`) matches configs against `experiment_runs/*/manifest.json` (via `comparable_config_dict`, which excludes `run_id`/checkpoint-only fields) to find completed/resumable runs for `BatchExperimentRunner`'s `reuse_policy` (`"smart"` skips completed + resumes interrupted, `"fresh"` never reuses).
+The run directory defaults to `experiment_runs/{run_id}/` (`make_run_dir()`'s default `base_dir`), but `RunConfig.run_dir` can override this to place it anywhere else — `experiments/scoped_experiment.py`'s `build_cfgs()` uses this to nest committed runs under `experiment_runs/{generator}/lamp{N}/{ranker}/{run_id}/` (see the "Committed experiment data" section below). `list_run_dirs` (`framework/cross_run_analysis.py`) and `RunRegistry` (`framework/artifacts.py`) both recursively scan for `manifest.json` at any depth, so flat and nested run directories are discovered identically — a run directory is always a leaf with no subdirectories, so this is unambiguous either way.
+
+On resume (`cfg.resume=True`), `ExperimentRunner` reconstructs completed-work sets by scanning these JSONL files rather than trusting `manifest.json` counters, so partial/interrupted runs never redo completed units. `RunRegistry` matches configs against every discovered `manifest.json` (via `comparable_config_dict`, which excludes `run_dir`/`run_id`/checkpoint-only fields — so a `run_dir` override never affects config identity or dedup) to find completed/resumable runs for `BatchExperimentRunner`'s `reuse_policy` (`"smart"` skips completed + resumes interrupted, `"fresh"` never reuses).
+
+A run directory produced by `experiments/merge_run_pairs.py` (merging two runs that together cover a task's full query range — see below) additionally carries a `merged_from: {baseline_run_id, scaleup_run_id}` field in its manifest for provenance.
 
 ### Cross-run analysis (`framework/cross_run_analysis.py`)
 
-Loads and flattens `experiment_runs/*/manifest.json` + `macro_summary.json`/`query_summary.jsonl` into comparison rows (optionally as a pandas DataFrame): `list_run_dirs`, `build_macro_comparison_rows`, `build_query_metric_rows`, `maybe_to_dataframe`. This is the foundation the `analysis/` package and both thesis notebooks build on — don't duplicate it.
+Recursively finds every run directory (via `list_run_dirs`, at any nesting depth) and flattens each one's `manifest.json` + `macro_summary.json`/`query_summary.jsonl` into comparison rows (optionally as a pandas DataFrame): `build_macro_comparison_rows`, `build_query_metric_rows`, `maybe_to_dataframe`. This is the foundation the `analysis/` package and both thesis notebooks build on — don't duplicate it. Note `build_macro_comparison_rows` returns one row per run *directory*, each carrying that directory's own pre-computed (unweighted) `macro_summary.json` mean — this is exactly why two directories covering the same logical setting must be merged into one (see below) rather than left split, or macro-level analysis silently double-counts/under-weights that setting.
+
+### Committed experiment data (`experiment_runs/`)
+
+`experiment_runs/` is gitignored by default — run output is normally regenerable local scratch. The subset that *is* committed (both generators, all 7 LaMP tasks, both rankers, full query coverage — see `experiment_runs/README.md` for current status) lives nested as `experiment_runs/{generator}/lamp{N}/{ranker}/{run_id}/`, exactly 12 run directories per leaf (1 deterministic + 7 MMR λ + 4 PL α), each covering that task's complete query range in a single directory — not split between an original sample and a later scale-up pass. `experiment_runs/INDEX.md` is a generated, sortable index over every committed run directory (regenerate via `python experiments/generate_run_index.py` after committing new runs — it is derived data, never hand-edited). `experiments/merge_run_pairs.py` is what produces one merged directory from a query-disjoint baseline+scale-up pair (see the "Artifacts and resumability" section above for why the merge, not just a directory move, is required for correctness) — see its module docstring and `experiment_runs/README.md`'s "How full coverage was reached" section for the full mechanism.
 
 ## Shared analysis toolkit (`analysis/`)
 

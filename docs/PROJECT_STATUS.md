@@ -619,3 +619,55 @@ not Holm-significant), plus a small significant PL-vs-MMR residual cost on
 Base; (d) whether any of this grows at XXL scale remains the future-work
 question. The report should cite this correction openly - it is a methods
 lesson (composition bugs from partial-coverage dedup) as much as a result.
+
+## 13. FULL-COVERAGE SCALE-UP AND STRUCTURAL CLEANUP (2026-08-03 to 2026-08-09)
+
+The lecturer flagged that `nq=100` (used throughout sections 7-12 above) wasn't
+enough statistical power. Both generators were extended to **every available
+query** for all 7 LaMP tasks and both rankers - `query_offset=100` runs
+covering everything past the original 100-query sample, generated via
+`framework`'s existing resumable batch machinery, then merged with the
+original samples into single directories per setting (`experiments/
+merge_run_pairs.py`, new this round - see `CLAUDE.md`'s "Committed experiment
+data" section for the mechanism and why a real merge, not just concatenating
+pre-aggregated stats, was necessary for macro-level correctness).
+
+Final per-task query counts actually used (confirmed via `LaMPDataset.
+total_queries()` - **not symmetric between generators**, unlike the assumption
+implicit in sections 7-12's flat `nq=100` design):
+
+| LaMP task | flanT5Base | flanT5Small |
+|---|---|---|
+| 1 | 232 | 51 |
+| 2 | 280 | 192 |
+| 3 | 378 | 311 |
+| 4 | 827 | 833 |
+| 5 | 759 | 826 |
+| 6 | 783 | 760 |
+| 7 | 211 | 365 |
+
+Along the way, `experiment_runs/` was also restructured from a flat listing of
+500+ timestamped directories into `experiment_runs/{generator}/lamp{N}/
+{ranker}/{run_id}/`, and a `select_best_precision`-adjacent legacy issue was
+cleaned up: 15 flanT5Small+BM25+LaMP1-4 directories left over from the section
+12 `pl_alpha_sweep_n30` investigation (which used `pl_samples=30` instead of
+the project's standard 10) were removed, with 8 of them backfilled at
+`pl_samples=10` first since no `pl_samples=10` baseline existed for those
+cells at all.
+
+**Final state as of 2026-08-09 (commit `43d12b3`):** both generators at full
+query coverage, all 7 tasks, both rankers - 336 committed run directories (168
+per generator), one merged directory per setting. Verified exhaustively before
+declaring done: every directory's row count, unique qid count, and true
+per-task total agree; the merged `macro_summary.json` in all 312
+baseline+scaleup-merged directories was independently recomputed from raw
+per-query rows and matched the stored value exactly (max deviation `0.0`
+across every metric); zero `pl_samples` mismatches across all 112 PL cells.
+
+**This section documents data completeness only - the findings in section 12
+above are still the `nq=100` numbers.** `experiments/make_report_figures.py`
+/ `significance_tests.py` / `task_sensitivity.py` have **not yet been re-run**
+on the full-coverage data (no code changes needed to do so - the enlarged
+pooled N flows through automatically via `list_run_dirs`'s recursive scan).
+That re-run, and whatever revised findings/report follow from it, is the
+project's next and (pending that re-run) final step.
