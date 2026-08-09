@@ -198,10 +198,12 @@ def fig2_fairness_utility_map():
 
 # ---------------------------------------------------------------- figure 2b
 def fig2b_fairness_diversity_coupling():
-    """The proposal's premise, as a two-panel 'dials' figure: each panel is one
+    """The premise check, as a two-panel 'dials' figure: each panel is one
     reranker's knob, x = intervention strength (left anchor = deterministic).
-    PL's knob moves fairness AND diversity together (the confound); MMR's knob
-    moves diversity while EE-D stays pinned at 1 (the decoupling instrument).
+    PL's knob moves fairness and diversity together (the diversity-as-mechanism
+    hypothesis this checks); MMR's knob moves diversity while EE-D stays
+    pinned at 1 (the diversity-focused comparator, not a causal isolation of
+    diversity alone since lambda also trades off relevance).
     Bold line = mean across the four (generator, retriever) cells; thin = cells."""
     EED_COLOR, ILD_COLOR = "#6A3D9A", "#33A02C"
 
@@ -261,7 +263,7 @@ def fig2b_fairness_diversity_coupling():
     fig.legend(handles, ["EE-D (unfairness)", "ILD (diversity)"], frameon=False,
                fontsize=8, loc="lower center", ncols=2, bbox_to_anchor=(0.5, -0.06))
     fig.suptitle("In our experiments, stronger PL fairness intervention coincides with\n"
-                 "higher diversity in aggregate; MMR moves diversity alone",
+                 "higher diversity in aggregate; MMR changes diversity with no fairness objective",
                  fontsize=9.5, y=1.04)
     fig.tight_layout()
     save(fig, "fig2b_fairness_diversity_coupling")
@@ -335,7 +337,7 @@ def fig4_ild_signflip():
         ax.annotate(f"{c:+.3f} ({sig_label})", (x, c), textcoords="offset points", xytext=(12, 0),
                     ha="left", va="center", fontsize=8)
     ax.set_xticks(xs, labels)
-    ax.set_ylabel("Within-MMR coef(ILD) on EU$_{norm}$")
+    ax.set_ylabel("Within-MMR coef(ILD$_{norm}$) on EU$_{norm}$")
     ax.set_title("Within-MMR association between diversity and utility, per cell\n"
                  "(exposure disparity fixed at the deterministic level, EE-D = 1;\n"
                  "cluster-robust 95% CI and $p$-values, by query)")
@@ -391,8 +393,8 @@ def fig7_eu_by_diversity_level():
     with equal weight; CIs are a task-stratified bootstrap."""
     MIN_ROWS, ROUNDS = 5, 400
     rng = np.random.default_rng(42)
-    METHOD_STYLE = {"mmr": ("#2A9D8F", "o", "MMR (diversity only)"),
-                    "pl": ("#E76F51", "^", "PL (stochastic fair)")}
+    METHOD_STYLE = {"mmr": ("#2A9D8F", "o", "MMR (diversity-focused)"),
+                    "pl": ("#E76F51", "^", "PL (fairness-controlled stochastic)")}
 
     def strat_boot(task_arrays):
         means = []
@@ -448,7 +450,7 @@ def fig7_eu_by_diversity_level():
     fig.legend(handles, labels_, frameon=False, fontsize=8, loc="lower center",
                ncols=3, bbox_to_anchor=(0.5, -0.035))
     fig.suptitle("Utility by diversity level: MMR vs PL vs the original deterministic list\n"
-                 "(task-matched bins: only (task, bin) cells where both methods have data)",
+                 "(task-aligned bins: only (task, bin) cells where both methods have data)",
                  fontsize=9.5, y=1.0)
     fig.tight_layout()
     save(fig, "fig7_eu_by_diversity_level")
@@ -482,9 +484,9 @@ def fig8_task_sensitivity():
         return m["coef"][target], ci95(m, target), m["p_value"][target]
 
     SPECS = [
-        ("Finding 2: fairness-utility tradeoff\ncoef(EE-D), PL rows only", qd[qd["rerank_method"] == "pl"],
+        ("Finding 2: fairness-utility tradeoff\ncoef(EE-D$_{norm}$), PL rows only", qd[qd["rerank_method"] == "pl"],
          "ee_disparity_norm", ["avg_ild_jaccard_norm", "is_base", "is_contriever"]),
-        ("Finding 3: diversity effect\ncoef(ILD), MMR rows only", qd[qd["rerank_method"] == "mmr"],
+        ("Finding 3: diversity-utility association\ncoef(ILD$_{norm}$), MMR rows only", qd[qd["rerank_method"] == "mmr"],
          "avg_ild_jaccard_norm", ["is_base", "is_contriever"]),
     ]
     tasks = sorted(qd["lamp_num"].dropna().unique())
