@@ -134,10 +134,20 @@ exclusion is not doing hidden work for any finding.
 336 total experiment runs, 163,392 query-level observations before the
 normalization exclusion above.
 
+🔧 **On weighting:** task query counts are highly unequal (e.g. Flan-T5-
+Small has 51 LaMP-1 queries but 833 LaMP-4 queries, above). Pooled
+query-level regressions and tests below therefore weight each *query*
+equally, not each *task* — larger tasks contribute proportionally more
+observations to any pooled estimate. Task-level heterogeneity and
+leave-one-task-out results are reported separately alongside each pooled
+number specifically so this doesn't get hidden.
+
 **Sanity check:** MMR at λ = 1 removes the diversity term entirely and
-should reproduce the deterministic ranking exactly. Checked directly on
-this data: **0.0 maximum difference in EU across all 13,616 paired
-queries** — confirmed, not assumed.
+should reproduce the deterministic baseline's utility exactly (equal EU
+does not by itself prove identical document rankings — this checks
+outcomes, not rankings). Checked directly on this data: **maximum paired
+EU difference = 0.0 across all 13,616 paired queries** — confirmed, not
+assumed.
 
 ---
 
@@ -238,8 +248,20 @@ i.e., asking only "when EE-D moves for *this* query, does its EU move with
 it" — gives **coefficient(EE-D) = +0.0518** (p = 2.0×10⁻³⁰, n = 52,568,
 4,269 clusters): smaller than the pooled +0.0735, but still positive and
 overwhelmingly significant. The pooled estimate was picking up some
-between-query variation, but the within-query effect on its own is real
-and substantial.
+between-query variation, but the within-query association remains
+substantial.
+
+🔧 **A finer version of the same check.** A per-query fixed effect (query =
+`lamp_num` + `qid`) still pools across all four generator/ranker cells
+within that query, since the same underlying query is evaluated under all
+four — so its within-group variation isn't purely "α changed," it can
+include "which cell this row came from" too. Using a fixed effect per
+(query, generator, ranker) instead — 13,142 groups, each one containing
+only the four PL α settings for one exact query in one exact cell —
+isolates the α-driven variation only: **coefficient(EE-D) = +0.0526**
+(p = 2.4×10⁻³⁰, same 4,269 query clusters for inference), essentially
+identical to the coarser per-query version. The cell composition wasn't
+doing meaningful work in the coarser check.
 
 ## Finding 3 — Diversity's own effect: real, but weaker than it first looked
 
@@ -279,7 +301,11 @@ dependent, not a fixed property of RAG generation.
 variation): **coefficient(ILD) = −0.0820** (p = 2.4×10⁻⁴, n = 91,994,
 4,269 clusters) — if anything slightly *larger* in magnitude and more
 significant than the pooled −0.0675, not smaller. The negative association
-is not an artifact of between-query composition.
+is not an artifact of between-query composition. 🔧 The finer (query,
+generator, ranker) fixed effect described under Finding 2 — which isolates
+purely the λ-driven variation for one exact query in one exact cell —
+gives **coefficient(ILD) = −0.0785** (p = 5.0×10⁻⁴, 4,269 query clusters
+for inference), essentially unchanged.
 
 🔧 The figure also suggests the negative association is stronger for the
 larger generator. Descriptively, that holds: adding cluster-robust
@@ -315,7 +341,7 @@ delta is exactly 0.0 in every cell, exactly reproducing the earlier sanity
 check. 19 of 28 point negative overall; MMR does not show a significant
 utility *win* over deterministic ranking in any of the 28 settings tested.
 
-## Finding 4 — PL has a residual utility disadvantage relative to MMR after adjusting for ILD
+## Finding 4 — PL has a residual, diversity-dependent utility disadvantage relative to MMR after adjusting for ILD
 
 🔧 *(Renamed from "Fairness's own mechanism carries a cost diversity
 doesn't explain" — that framing claimed more identification than this
@@ -338,61 +364,87 @@ adjustment, not a matching procedure.)
 | flanT5Small / Contriever | −0.0186 | 4.7×10⁻⁸ |
 | flanT5Base / Contriever | −0.0227 | 1.3×10⁻¹⁰ |
 
-All four cells negative, significant, similar magnitude (pooled coef =
-−0.0194; cluster-robust p = 8.8×10⁻³⁴ — this one *strengthens*, not
-weakens, under cluster-robust inference).
+All four cells negative, significant, similar magnitude. Pooling with a
+single common ILD slope for PL and MMR gives **coef(is_PL) = −0.0194**
+(cluster-robust p = 8.8×10⁻³⁴) — but before treating that single number as
+the answer, we tested whether a single common slope is actually the right
+model.
+
+🔧 **Primary specification: does the PL–MMR gap depend on diversity
+level?** Adding a PL×ILD interaction term to the regression above: the
+interaction **is significant** (coef = +0.0293, p = 0.0125) — the two
+methods' ILD slopes are not identical, so a single additive coefficient
+understates what's actually happening. ILD is not centered, so
+coef(is_PL) alone is the model's fitted PL–MMR gap specifically at
+ILD = 0; that value does occur in this data (both methods' observed ILD
+minimum is exactly 0.0) but it's rare — ILD's own 10th percentile is
+already 0.84, since nearly all retrieved profiles are highly diverse under
+both methods. The gap at several points across the observed range:
+
+| ILD level | Δ (PL − MMR) | 95% CI | p |
+|---|---|---|---|
+| 0 (observed floor, rare) | −0.0464 | [−0.068, −0.025] | 2.1×10⁻⁵ |
+| p10 (0.84) | −0.0218 | [−0.025, −0.018] | 2.5×10⁻³² |
+| median (0.96) | −0.0181 | [−0.021, −0.015] | 2.8×10⁻²⁷ |
+| p90 (0.99) | −0.0172 | [−0.021, −0.014] | 3.6×10⁻²¹ |
+| **mean / AME** | **−0.0192** | **[−0.022, −0.016]** | **1.5×10⁻³³** |
+
+The gap is largest — about −0.046 — in the small, rare tail of
+low-diversity settings, and narrows to roughly −0.017 to −0.022 across the
+bulk of the data (p10 to p90 of observed ILD). The **average marginal
+effect, −0.0192** (95% CI [−0.022, −0.016]), is what we treat as the
+headline single-number summary going forward — a proper average over the
+interaction model rather than an assumption of one fixed slope, and it
+lands almost exactly where the simpler additive model (−0.0194) did. We
+report both because the interaction is itself informative: PL's
+disadvantage isn't a fixed constant, it's specifically worse in the rare
+low-diversity regime and comparatively stable elsewhere.
 
 🔧 **What this does and doesn't establish.** Adjusting for ILD controls for
 one measured outcome of the ranking, not for everything that differs
 between PL and MMR — PL is stochastic and MMR deterministic, they may
 preserve the original relevance ordering differently, and PL introduces
-variance across repeated draws that MMR doesn't have. So this coefficient
-is an **average adjusted difference between PL and MMR after controlling
-for measured ILD** — not a clean causal estimate of "what fairness itself
-costs," and not evidence that PL underperforms at *every* diversity level:
-fig7 shows individual ILD bins where that isn't the case. We originally
-described this as "isolating fairness's contribution beyond diversity";
-that overstated what the design identifies, and we've corrected the
-framing.
+variance across repeated draws that MMR doesn't have. So the AME above is
+an **average adjusted difference between PL and MMR after controlling for
+measured ILD** — not a clean causal estimate of "what fairness itself
+costs." We originally described this as "isolating fairness's contribution
+beyond diversity"; that overstated what the design identifies, and we've
+corrected the framing.
 
 🔧 **Query fixed effects** (same check as Findings 2–3, isolating
-within-query variation): **coefficient(is_PL) = −0.0200** (p = 7.5×10⁻³⁷,
-n = 144,562, 4,269 clusters) — essentially identical to the pooled
-−0.0194. This is the most stable of the three findings under this check.
+within-query variation, applied to the additive spec since that's what
+the AME above is grounded in): **coefficient(is_PL) = −0.0200**
+(p = 7.5×10⁻³⁷, n = 144,562, 4,269 clusters) — essentially identical to
+the pooled −0.0194 and the AME. 🔧 The finer (query, generator, ranker)
+fixed effect described under Finding 2 gives the same number again:
+**coefficient(is_PL) = −0.0200** (p = 1.1×10⁻³⁶). This is the most stable
+of the three findings across every specification tested.
 
-🔧 **Two further checks on the −0.0194 estimate, following up on two
-specific concerns.** First: does the ILD slope differ between PL and MMR —
-i.e., is a single common adjustment even appropriate? Adding a PL×ILD
-interaction term: the interaction **is significant** (coef = +0.0293,
-p = 0.0125), meaning the two methods' ILD slopes are not identical — the
-PL-vs-MMR gap is largest at the lowest measured ILD (coef(is_PL) = −0.0464
-there) and narrows as ILD rises. The single-slope model above is a
-simplification: the average adjusted difference is real, but the gap
-itself is not constant across the diversity range — a nuance the pooled
-−0.0194 doesn't convey on its own. Second: does the comparison rely on
-extrapolating outside the diversity range either method actually reaches?
-No — PL's and MMR's measured ILD distributions essentially fully overlap
-(both span the same range with closely matched 5th/median/95th
-percentiles), so restricting to their common support changes nothing:
-coef(is_PL) = −0.0193 (p = 8.8×10⁻³⁴, all 144,562 rows already fall inside
-the overlap) — the −0.0194 estimate isn't an artifact of comparing the two
-methods outside each other's typical operating range.
+🔧 **Common ILD support.** Does the comparison rely on extrapolating
+outside the diversity range either method actually reaches? No — PL's and
+MMR's measured ILD distributions essentially fully overlap (both span the
+same range with closely matched 5th/median/95th percentiles), so
+restricting to their common support changes nothing: coef(is_PL) = −0.0193
+(p = 8.8×10⁻³⁴, all 144,562 rows already fall inside the overlap) — the
+estimate isn't an artifact of comparing the two methods outside each
+other's typical operating range.
 
 **We tested our own proposed mechanism, and it did not hold up.** Our
 working hypothesis was that PL pays a *relevance* cost — stochastic
 sampling moves away from the highest-ranked item, and that specifically
 (not diversity) explains the residual. The source paper's EE-R metric
 (exposure alignment with useful items) is a direct proxy for this. Adding
-EE-R as a covariate: coef(is_PL) moves from −0.0194 to **−0.0187** —
-essentially unchanged (EE-R itself is strongly associated with EU,
-coef = +0.158, p ≈ 0, a reassuring sanity check that EE-R behaves as
-expected — it just doesn't explain away PL's residual). **The relevance-
-cost story is not confirmed by this test.** The honest conclusion is
-narrower than what we originally wrote: PL underperforms MMR on average
-after adjusting for ILD, robustly, and the mechanism for *why* remains open — plausible
-candidates include the stochasticity itself (variance, not just a mean
-shift) or something ILD and EE-R together don't capture, but we have not
-demonstrated which.
+EE-R as a covariate: coef(is_PL) moves from −0.0194 to **−0.0187**
+(p = 3.0×10⁻³⁴) — essentially unchanged (EE-R itself is strongly
+associated with EU, coef = +0.158, **p = 5.1×10⁻¹⁰⁴**, a reassuring sanity
+check that EE-R behaves as expected — it just doesn't explain away PL's
+residual). **The relevance-cost story is not confirmed by this test.** The
+honest conclusion is narrower than what we originally wrote: PL
+underperforms MMR on average after adjusting for ILD — more so at low
+diversity than high, robustly across every specification tested — and the
+mechanism for *why* remains open. Plausible candidates include the
+stochasticity itself (variance, not just a mean shift) or something ILD
+and EE-R together don't capture, but we have not demonstrated which.
 
 ## Robustness
 
@@ -406,23 +458,31 @@ finding's direction or overall conclusion.
 🔧 **Query fixed effects, as one further check for all three regression
 findings.** Clustering fixes standard errors for repeated observations of
 the same query, but the *point estimate* in a pooled regression can still
-blend genuine within-query treatment effects (EE-D/ILD changing for the
-same query as α/λ changes) with between-query differences (some queries
+blend genuine within-query treatment effects (EE-D/ILD changing as α/λ
+changes for the same query) with between-query differences (some queries
 are just easier, more diverse, or fairer-scoring regardless of setting).
-Adding a fixed effect per query isolates the within-query effect only. All
-three headline coefficients hold up:
+We ran this two ways: a fixed effect per query (`lamp_num`+`qid`), and a
+finer fixed effect per (query, generator, ranker) — since the same
+underlying query is evaluated under all four generator/ranker cells, the
+coarser version can still let cell identity contribute to the "within"
+variation; the finer version's 13,142 groups each hold only the exact
+treatment-dial settings (α, λ, or PL-vs-MMR) for one query in one cell,
+isolating that variation only. All three headline coefficients hold up
+under both:
 
-| Finding | Pooled coefficient | Query-FE coefficient |
-|---|---|---|
-| 2 (coef EE-D, PL rows) | +0.0735 (p=6.3×10⁻⁵⁴) | +0.0518 (p=2.0×10⁻³⁰) |
-| 3 (coef ILD, MMR rows) | −0.0675 (p=0.0115) | −0.0820 (p=2.4×10⁻⁴) |
-| 4 (coef is_PL, PL+MMR) | −0.0194 (p=8.8×10⁻³⁴) | −0.0200 (p=7.5×10⁻³⁷) |
+| Finding | Pooled coefficient | Query FE | Query × generator × retriever FE |
+|---|---|---|---|
+| 2 (coef EE-D, PL rows) | +0.0735 (p=6.3×10⁻⁵⁴) | +0.0518 (p=2.0×10⁻³⁰) | +0.0526 (p=2.4×10⁻³⁰) |
+| 3 (coef ILD, MMR rows) | −0.0675 (p=0.0115) | −0.0820 (p=2.4×10⁻⁴) | −0.0785 (p=5.0×10⁻⁴) |
+| 4 (coef is_PL, PL+MMR) | −0.0194 (p=8.8×10⁻³⁴) | −0.0200 (p=7.5×10⁻³⁷) | −0.0200 (p=1.1×10⁻³⁶) |
 
 Finding 2's within-query effect is smaller than the pooled estimate
 (pooled was picking up some between-query variation) but remains large and
 highly significant. Findings 3 and 4 are essentially unchanged, or
-slightly *stronger*, under the within-query specification. None of the
-three conclusions depend on between-query composition.
+slightly *stronger*, under either within-query specification. The two FE
+levels barely differ from each other, so the coarser query-only FE wasn't
+letting cell composition do hidden work. None of the three conclusions
+depend on between-query composition.
 
 ## Limitations
 
