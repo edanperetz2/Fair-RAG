@@ -1,0 +1,1077 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage[round]{natbib}
+\usepackage[hidelinks]{hyperref}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{xcolor}
+\usepackage{microtype}
+
+\graphicspath{{../figures/}}
+
+\newcommand{\eed}{\ensuremath{\mathrm{EE\text{-}D}}}
+\newcommand{\eer}{\ensuremath{\mathrm{EE\text{-}R}}}
+\newcommand{\eu}{\ensuremath{\mathrm{EU}}}
+\newcommand{\eunorm}{\ensuremath{\mathrm{EU}_{\mathrm{norm}}}}
+\newcommand{\eednorm}{\ensuremath{\eed_{\mathrm{norm}}}}
+\newcommand{\eernorm}{\ensuremath{\eer_{\mathrm{norm}}}}
+\newcommand{\ild}{\ensuremath{\mathrm{ILD}}}
+\newcommand{\ildnorm}{\ensuremath{\ild_{\mathrm{norm}}}}
+\newcommand{\isPL}{\ensuremath{\mathbb{1}[\mathrm{PL}]}}
+
+\title{\textbf{Fair Ranking in Retrieval-Augmented Generation:\\
+Is the Benefit Fairness, or Diversity in Disguise?}}
+\author{Idan Peretz \and Avi Simkin}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent
+Kim and Diaz~\citep{kim2025fairrag} report that Retrieval-Augmented
+Generation (RAG) systems built on item-exposure-fair rankings can preserve,
+and in many cases even improve, downstream generation quality relative to
+relevance-only rankings. We investigate a specific confound in that claim:
+the stochastic fairness mechanism most commonly used for this purpose,
+Plackett--Luce (PL) reranking, does not only equalize expected exposure
+across repeated rankings --- as a byproduct of its randomization, it also
+tends to change the within-list textual diversity of what a RAG generator
+actually sees. If diversity itself helps generation, an apparent
+``fairness helps'' result could really be diversity doing the work. We
+test this directly on the LaMP benchmark (all 7 tasks, both generators
+Flan-T5-Small and Flan-T5-Base, both BM25 and Contriever retrieval, full
+query coverage, 336 experiment configurations, 163{,}392 query-level
+observations) by using Maximal Marginal Relevance (MMR) --- a reranker with
+an explicit diversity dial and no fairness objective --- to separate the
+two constructs. We find no evidence that PL reranking improves utility
+over the deterministic baseline (10 of 16 Holm-corrected tests are
+significant, and 8 of those are losses); that within PL's own fairness
+dial, greater exposure equality is robustly associated with \emph{lower}
+utility (coefficient $+0.0735$, cluster-robust $p=6.3\times10^{-54}$,
+stable under leave-one-task-out and three levels of fixed effects); that
+MMR-induced diversity shows no general utility benefit of its own (a
+modest, heterogeneous negative pooled association, $p=0.0115$); and that
+PL retains an average utility disadvantage relative to MMR after adjusting
+for measured diversity (average marginal effect $\approx-0.019$ to
+$-0.020$, robust across every specification and every leave-one-task-out
+fold we tested). A directly tested candidate mechanism --- that PL pays a
+relevance cost via reduced exposure-relevance alignment --- does not
+explain this residual. We conclude that, in the settings we test, measured
+within-list diversity (ILD-Jaccard) alone does not account for the
+difference between PL and MMR utility, while explicitly declining to
+interpret this residual as the causal cost of fairness itself, since the
+two rerankers differ along dimensions besides diversity.
+\end{abstract}
+
+\section{Introduction}
+
+Retrieval-Augmented Generation (RAG) systems answer a query by first
+retrieving a small set of supporting documents or profile items and then
+conditioning a language model's generation on that retrieved
+set~\citep{lewis2020rag}. Because only a handful of items are shown to the
+generator, \emph{which} items are retrieved and in \emph{what order} they
+are presented has a direct effect on the generator's output. This same
+property has made ranking a natural place to intervene for
+\emph{item-side fairness}: if being retrieved and shown carries value
+(exposure) to the entity that produced an item, then systematically
+favoring some relevant items over other, comparably relevant items is a
+fairness concern independent of whether it also affects end-task quality.
+A substantial ranking-fairness literature formalizes this as exposure
+fairness --- equalizing the \emph{expected exposure} an item receives
+across repeated, possibly randomized rankings, rather than requiring a
+single fixed ranking to look fair on
+its own~\citep{singh2018fairness,biega2018equity,diaz2020expectedexposure}.
+
+Kim and Diaz~\citep{kim2025fairrag} apply this idea to RAG directly,
+reranking retrieved candidate sets with fairness-aware methods before
+generation and measuring both item-side exposure fairness and downstream
+generation quality. Their central, and somewhat counter-intuitive, finding
+is that RAG systems built on fair rankings can preserve, and in many
+cases even outperform, RAG systems built on purely relevance-ranked
+retrieval --- suggesting that enforcing fairness need not cost generation
+quality, and might sometimes help it.
+
+This project investigates a specific reason that result could be
+misleading. The fairness mechanism most commonly used in this line of
+work, Plackett--Luce (PL) stochastic reranking, achieves exposure equality
+by randomizing which comparably relevant items are shown across repeated
+draws~\citep{plackett1975analysis,luce1959individual}. That randomization
+is not targeted at diversity in any direct sense, but as a side effect it
+tends to change how varied the items shown \emph{in any single sampled
+list} are from one another. If a RAG generator produces better output when
+it sees a more varied context --- independent of whether that context is
+fairly exposed --- then an observed ``fair reranking helped'' result could
+really be within-list diversity doing the work, with fairness merely along
+for the ride. Before attributing a utility change to fairness, it is
+therefore necessary to check whether the diversity that fairness happens
+to induce is the actual mechanism.
+
+This is the question this paper answers:
+
+\begin{quote}
+\itshape
+When a fair ranking method appears to help, or hurt, a RAG system's output
+quality, is that effect attributable to fairness itself, or to the
+within-list diversity that the fairness mechanism happens to produce?
+\end{quote}
+
+Answering this requires separating two constructs that are easy to
+conflate in practice but are conceptually distinct: \emph{fairness}, which
+we operationalize as expected exposure equality across repeated rankings
+(Expected Exposure Disparity, \eed, lower is fairer), and \emph{diversity},
+which we operationalize as within-list textual variety in a single
+ranking (ILD-Jaccard). PL moves both at once. What lets us pull them apart
+is Maximal Marginal Relevance (MMR)~\citep{carbonell1998mmr}: a
+deterministic reranker with an explicit relevance-diversity dial and
+\emph{no} fairness objective whatsoever. Comparing PL to MMR after
+adjusting for measured diversity level can reveal whether PL's outcomes
+track diversity alone or whether a residual difference remains --- though,
+as we discuss throughout, that residual is not automatically identifiable
+as ``the causal effect of fairness,'' since PL and MMR differ along
+several dimensions besides diversity (stochastic versus deterministic
+selection, how each preserves the underlying relevance ordering, and
+so on).
+
+\paragraph{Contributions.} We (1) reproduce and re-examine Kim and Diaz's
+central claim on a full-coverage subset of their experimental design (all
+7 LaMP tasks, two generators, two retrievers, complete query coverage);
+(2) test, rather than assume, whether PL's fairness mechanism actually
+induces the diversity increase the confound requires, at both the
+aggregate and per-query level; (3) use MMR as an explicit diversity-only
+instrument to separate the fairness and diversity constructs empirically,
+reporting four main findings with cluster-robust inference,
+leave-one-task-out robustness, and three progressively stricter levels of
+fixed-effects identification; and (4) directly test and reject our own
+leading hypothesis for the residual PL--MMR utility gap (a relevance cost
+from PL's stochastic sampling), leaving the mechanism explicitly open
+rather than overclaiming an explanation.
+
+\section{Background and Related Work}
+
+\paragraph{Retrieval-augmented generation.} RAG conditions a generation
+model on a small set of retrieved documents or profile items rather than
+relying solely on parametric knowledge~\citep{lewis2020rag}. This makes
+generation quality directly sensitive to the retrieval and reranking
+pipeline: which items are retrieved, and the order and composition of the
+final shortlist handed to the generator, can change what the model is
+able to produce. Reranking the initial candidate set --- the stage this
+paper studies --- is therefore a natural place to intervene on both
+fairness and diversity objectives without retraining the generator itself.
+
+\paragraph{Exposure fairness in ranking.} A ranking necessarily privileges
+higher-ranked items with more user attention; item-side fairness concerns
+whether comparably relevant items receive comparable exposure over
+repeated exposure to the ranking, not whether any single ranking looks
+balanced in isolation~\citep{singh2018fairness,biega2018equity}.
+\citet{diaz2020expectedexposure} formalize this with the \emph{expected
+exposure} framework: exposure and relevance are both expressed as
+distributions over items, aggregated across a distribution of
+(possibly randomized) rankings, and a ranking policy's disparity is the
+divergence between the exposure it delivers and the exposure a
+relevance-proportional target would deliver. This paper's fairness metric,
+\eed{} (Expected Exposure Disparity), and its companion \eer{} (Expected
+Exposure Relevance, used only in the mechanism test of
+Section~\ref{sec:finding4}), are computed with the reference
+implementation released alongside that framework, applied unmodified to
+this project's rankings.
+
+\paragraph{Kim and Diaz's Fair RAG.} \citet{kim2025fairrag} evaluate nine
+RAG configurations across the fairness metrics above and downstream task
+utility, using the LaMP personalization
+benchmark~\citep{salemi2024lamp} augmented with their own item-level
+utility labels. Their central finding --- that fair rerankings can
+preserve or even improve generation quality relative to purely
+relevance-ranked retrieval --- motivates the present paper's question:
+whether that apparent quality preservation is attributable to fairness
+itself, or to a byproduct of the fairness mechanism used to achieve it.
+
+\paragraph{Plackett--Luce stochastic ranking.} The Plackett--Luce (PL)
+model~\citep{plackett1975analysis,luce1959individual} defines a
+distribution over permutations of a candidate set by sampling without
+replacement: at each step, an unranked item $i$ with (temperature-scaled)
+score $s_i$ is selected next with probability
+$\exp(s_i)\big/\sum_{j\in R}\exp(s_j)$, where $R$ is the set of
+not-yet-selected items. Repeated draws from this distribution, rather than
+a single deterministic ranking, are what makes expected-exposure equality
+achievable: items with comparable scores receive comparable exposure
+\emph{in expectation} even though any single sampled ranking still favors
+higher-scored items. PL is the fairness mechanism this paper studies; its
+temperature parameter, denoted $\alpha$ here, controls how close the
+sampling distribution is to the deterministic (highest-score-first)
+ranking, with larger $\alpha$ producing less randomization and therefore
+less fairness intervention.
+
+\paragraph{Maximal Marginal Relevance.} MMR~\citep{carbonell1998mmr}
+constructs a ranking greedily: having selected items $D_1,\dots,D_{k-1}$,
+the next item is
+\[
+D_k = \operatorname*{arg\,max}_{D_i \notin \{D_1,\dots,D_{k-1}\}}\;
+\Big[\lambda\cdot\mathrm{Sim}_1(D_i, Q) \;-\; (1-\lambda)\cdot
+\max_{D_j \in \{D_1,\dots,D_{k-1}\}} \mathrm{Sim}_2(D_i, D_j)\Big],
+\]
+where $\mathrm{Sim}_1$ is relevance to the query and $\mathrm{Sim}_2$ is
+similarity to already-selected items. The parameter $\lambda\in[0,1]$
+trades relevance for diversity: $\lambda=1$ recovers the purely
+relevance-ranked list, and decreasing $\lambda$ pushes the ranking toward
+more mutually dissimilar items. Because MMR is entirely deterministic and
+has no exposure-equality objective, it gives this paper a diversity
+manipulation with no fairness confound, which is what makes separating
+fairness from diversity possible at all.
+
+\section{Methodology}
+\label{sec:methodology}
+
+\subsection{Datasets}
+
+We use the LaMP personalization benchmark~\citep{salemi2024lamp}, all
+seven tasks, under the ``user'' split, drawing the full available query
+set per task from the generator-dependent, per-generator-filtered
+utility-label test collections that Kim and Diaz's released data pipeline
+builds from the original LaMP release~\citep{kim2025fairrag}; we do not
+draw any additional subsample on top of that filtering.
+
+\subsection{Generators}
+
+We evaluate two instruction-tuned Flan-T5 generators~\citep{chung2024scaling,raffel2020t5}:
+Flan-T5-Small (77M parameters) and Flan-T5-Base (250M parameters). Larger
+Flan-T5 variants exist in the source paper's evaluation but were not
+computationally feasible on the hardware available for this project
+(Section~\ref{sec:limitations}).
+
+\subsection{Retrievers}
+
+We use two retrievers with different underlying representations: a
+sparse lexical retriever, BM25 \citep{robertson2009bm25}, and an
+unsupervised dense retriever trained with contrastive learning,
+Contriever \citep{izacard2022contriever}.
+
+\subsection{Rerankers}
+
+For each (generator, retriever) cell, we evaluate 12 reranking settings
+over a top-$k=5$ candidate list:
+
+\begin{itemize}
+\item \textbf{Deterministic baseline}: the top-5 items by raw retrieval
+  score, with no fairness or diversity intervention. This is the
+  relevance-only reference condition throughout the paper.
+\item \textbf{MMR}, at seven diversity levels
+  $\lambda \in \{0.15, 0.30, 0.45, 0.55, 0.70, 0.85, 1.00\}$. As a
+  construction check, $\lambda=1$ should exactly reproduce the
+  deterministic baseline's outcome (Section~\ref{sec:setup}).
+\item \textbf{PL}, at four fairness strengths
+  $\alpha \in \{1, 2, 4, 8\}$ (lower $\alpha$ is a stronger fairness
+  intervention), with $N=10$ independently sampled rankings per $\alpha$
+  per query. Kim and Diaz estimate their stochastic-ranking quantities
+  from $N=100$ samples; we use $N=10$ as an explicit, disclosed
+  computational compromise (Section~\ref{sec:limitations}).
+\end{itemize}
+
+\subsection{Metrics}
+
+\textbf{Fairness (\eed{}, lower is fairer).} We use Kim and Diaz's own
+source-normalized \eed{}, computed by their vendored implementation of the
+expected-exposure framework~\citep{diaz2020expectedexposure} with
+\texttt{normalize=True} (i.e., normalized against theoretical per-query
+exposure bounds), applied unmodified to our rankings. We do \emph{not}
+apply any further normalization to \eed{}; wherever \eednorm{} appears in
+this paper it refers to this same source-normalized quantity, not raw
+\eed{}.
+
+\textbf{Utility (\eu{}).} Task-specific: accuracy for LaMP-1/2, mean
+absolute error (MAE, lower is better) for LaMP-3, and ROUGE-L for
+LaMP-4--7.
+
+\textbf{Diversity (\ild{}-Jaccard).} One minus the mean pairwise Jaccard
+similarity of the retrieved profile text within a single ranked list;
+higher is more diverse.
+
+\textbf{Exposure-relevance alignment (\eer{}).} Also computed by the
+vendored expected-exposure implementation with \texttt{normalize=True};
+used only as a candidate mechanism variable in
+Section~\ref{sec:finding4}.
+
+\subsection{Normalization}
+\label{sec:normalization}
+
+Because LaMP's seven tasks use three different utility metrics on
+different scales, raw \eu{} values are not comparable across tasks. We
+define our own within-query normalized utility, \eunorm{}, distinct from
+Kim and Diaz's separate empirical-upper-bound normalization: for query
+$q$ and setting $s$,
+\[
+\eunorm(q,s) = \frac{\eu'(q,s)}{\max_{s'\in S(q)} \eu'(q,s')},
+\qquad\text{where}\qquad
+\eu'(q,s) = \begin{cases}
+4.0 - \eu(q,s), & \text{LaMP-3}\\[2pt]
+\eu(q,s), & \text{otherwise}
+\end{cases}
+\]
+(LaMP-3 uses MAE, where lower is better, so it is flipped before
+normalizing; every other task's raw \eu{} is used as-is)
+where $S(q)$ is the set of 12 settings evaluated for query $q$; this is
+true max-normalization (division by the largest raw value a query
+achieved), not min--max scaling. \ildnorm{} and \eernorm{} are defined
+identically, dividing by each query's own maximum raw \ild{} or \eer{}
+value across its 12 settings. \eednorm{} is the one exception: it is never
+further normalized, since it is already the source-normalized quantity
+described above.
+
+The normalization denominator is exactly zero, and \eunorm{} undefined,
+precisely when a query scores raw \eu{}$=0$ under \emph{every one} of its
+12 settings --- verified directly for all 237 affected queries, with no
+exceptions. This excludes 5{,}688 of 163{,}392 query-level rows (3.5\%),
+concentrated in LaMP-1, 2, 5, and 6 (zero excluded rows in LaMP-3 and
+LaMP-7); these are queries on which no method received any credit, not
+queries where methods tied at an informative nonzero value. As a
+sensitivity check, we re-ran the three primary regressions (Findings 2--4)
+with these rows filled at \eunorm{}$=0$ rather than excluded: coefficients
+moved modestly and no conclusion changed sign or significance status
+(Finding 2: $+0.0735 \to +0.0697$, $p<10^{-50}$; Finding 3:
+$-0.0675 \to -0.0838$, $p=0.012 \to 0.0017$; Finding 4:
+$-0.0193 \to -0.0188$, $p<10^{-33}$). We report the exclusion version
+throughout as the more conservative choice.
+
+\subsection{Statistical Methodology}
+\label{sec:stats-methodology}
+
+\textbf{Paired tests.} Wilcoxon signed-rank tests on per-query \eunorm{},
+paired against the deterministic baseline, Holm-corrected within each
+(generator, retriever) cell's test family.
+
+\textbf{Cluster-robust inference.} Because each query is observed under
+multiple settings (every $\alpha$, every $\lambda$, both methods), we
+report CR1 sandwich-estimator standard errors clustered by query wherever
+a pooled regression is the primary estimate, alongside the naive
+(non-clustered) $p$-value for comparison where informative.
+
+\textbf{Leave-one-task-out (LOTO).} For every headline pooled coefficient,
+we re-fit the identical specification after dropping each of the seven
+LaMP tasks in turn, checking whether the coefficient's sign or
+significance status changes.
+
+\textbf{Fixed effects.} To separate within-query treatment variation
+(e.g., $\alpha$ changing for the same query) from between-query
+composition (some queries are systematically easier, fairer-scoring, or
+more diverse regardless of setting), we estimate two nested fixed-effects
+specifications via the within (demeaning) estimator with cluster-robust
+standard errors: a \emph{query} fixed effect (one dummy per
+task$\times$query id), and a finer \emph{query$\times$generator$\times$
+retriever} fixed effect, since the same query is evaluated under all four
+generator/retriever cells and a pure query fixed effect can still let
+cell identity contribute to the ``within'' variation.
+
+\textbf{Interaction and marginal-effects model.} For Finding 4
+(Section~\ref{sec:finding4}), we test whether a single additive PL-vs-MMR
+coefficient is an adequate summary by adding a PL$\times$\ildnorm{}
+interaction term. When the interaction is non-negligible, we report the
+conditional PL--MMR gap at several points across the observed \ildnorm{}
+range, and the average marginal effect (AME) --- the interaction model
+evaluated at the empirical mean of \ildnorm{} --- with delta-method
+standard errors computed from the full coefficient covariance matrix.
+
+\subsection{Task Weighting}
+
+LaMP task sample sizes differ substantially after filtering
+(Table~\ref{tab:query-counts}). Pooled query-level regressions and tests
+throughout this paper weight each \emph{query} equally, not each task;
+larger tasks therefore contribute proportionally more observations to any
+pooled estimate. We report task-level heterogeneity and leave-one-task-out
+results alongside every pooled number specifically so that this implicit
+weighting does not go unnoticed.
+
+\section{Experimental Setup}
+\label{sec:setup}
+
+Table~\ref{tab:setup} summarizes the full factorial design: 2 generators
+$\times$ 2 retrievers $\times$ 12 reranking settings $\times$ 7 LaMP
+tasks, for 336 total experiment configurations and 163{,}392 query-level
+observations before the normalization exclusion of
+Section~\ref{sec:normalization}. Table~\ref{tab:query-counts} gives the
+retained query count per task and generator after the source paper's
+per-generator utility-label filtering.
+
+\begin{table}[htbp]
+\centering
+\caption{Experimental design.}
+\label{tab:setup}
+\begin{tabular}{ll}
+\toprule
+Component & Values \\
+\midrule
+Benchmark & LaMP, all 7 tasks, ``user'' split \\
+Generators & Flan-T5-Small (77M), Flan-T5-Base (250M) \\
+Retrievers & BM25, Contriever \\
+Candidate list size & $k=5$ \\
+Deterministic baseline & top-$k$ by raw retrieval score \\
+MMR & $\lambda \in \{0.15, 0.30, 0.45, 0.55, 0.70, 0.85, 1.00\}$ \\
+PL & $\alpha \in \{1, 2, 4, 8\}$, $N=10$ sampled rankings per $\alpha$ \\
+Settings per cell & 12 (1 deterministic + 7 MMR + 4 PL) \\
+Total configurations & 336 \\
+Query-level rows (pre-exclusion) & 163{,}392 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{Retained query count per LaMP task and generator, after the
+source paper's per-generator utility-label filtering.}
+\label{tab:query-counts}
+\begin{tabular}{lrr}
+\toprule
+LaMP task & Flan-T5-Base & Flan-T5-Small \\
+\midrule
+1 & 232 & 51 \\
+2 & 280 & 192 \\
+3 & 378 & 311 \\
+4 & 827 & 833 \\
+5 & 759 & 826 \\
+6 & 783 & 760 \\
+7 & 211 & 365 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Sanity check: MMR at $\lambda=1$.} By construction, $\lambda=1$
+removes MMR's diversity term entirely and should reproduce the
+deterministic baseline. We verify this directly rather than assuming it:
+the maximum paired \eu{} difference between the two conditions is
+\textbf{exactly 0.0 across all 13{,}616 paired queries}. This confirms
+outcome equality, not identical document rankings, which we did not
+independently verify at the document-ID level.
+
+\subsection{Premise Check: Does PL's Fairness Mechanism Actually Increase Diversity Here?}
+\label{sec:premise}
+
+The motivating confound requires that PL's fairness intervention actually
+moves diversity as a byproduct; we test this rather than assume it.
+Figure~\ref{fig:premise} shows both quantities as PL's $\alpha$ varies,
+averaged across the four (generator, retriever) cells.
+
+\textbf{Query-level coupling is weak.} Within PL rows, the Pearson
+correlation between \eednorm{} and \ildnorm{} is
+$r=-0.086$ ($n=54{,}464$) --- a small effect once individual queries are
+considered, swamped by per-query noise in both quantities.
+
+\textbf{The aggregate, by-$\alpha$ pattern is monotonic.} Table~\ref{tab:premise}
+reports the mean source-normalized \eed{} and mean raw \ild{}-Jaccard at
+each $\alpha$: as $\alpha$ increases (fairness intervention weakens toward
+the deterministic baseline), disparity rises and diversity falls,
+monotonically in the expected directions.
+
+\begin{table}[htbp]
+\centering
+\caption{Aggregate fairness and diversity by PL $\alpha$ (lower $\alpha$
+is fairer).}
+\label{tab:premise}
+\begin{tabular}{lrr}
+\toprule
+PL $\alpha$ & Mean source-normalized \eed{} & Mean \ild{}-Jaccard (raw) \\
+\midrule
+1 & 0.210 & 0.879 \\
+2 & 0.248 & 0.870 \\
+4 & 0.657 & 0.838 \\
+8 & 0.948 & 0.830 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The premise therefore holds \emph{in aggregate, as a tendency across the
+fairness dial}, but not as a tight per-query coupling. We report both
+because this looseness matters downstream: it is part of why a PL-vs-MMR
+comparison adjusted for measured diversity (Section~\ref{sec:finding4})
+cannot be treated as a clean causal isolation of fairness's own
+contribution.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.92\textwidth]{fig2b_fairness_diversity_coupling.pdf}
+\caption{Fairness interventions raise diversity in aggregate: PL's dial
+moves both expected exposure disparity and diversity at once (left
+panel), while MMR's dial moves diversity with disparity pinned near the
+deterministic level (right panel, EE-D $\approx 1$), which is what makes
+MMR usable as a diversity-only instrument. Bold lines are the mean across
+the four (generator, retriever) cells; thin lines are individual cells.}
+\label{fig:premise}
+\end{figure}
+
+\section{Results}
+\label{sec:results}
+
+\subsection{Finding 1: PL Reranking Generally Does Not Improve Utility}
+\label{sec:finding1}
+
+We test each PL $\alpha$ against the deterministic baseline, paired
+per-query, Holm-corrected within each cell's 4-test family (4 $\alpha$
+values $\times$ 4 generator/retriever cells $=16$ tests total). This
+scopes the test specifically to PL, since MMR has no fairness objective
+and does not belong in a test about whether fairness pays off; MMR-vs-baseline
+comparisons are evidence about diversity instead
+(Section~\ref{sec:finding3}).
+
+Of the 16 tests, \textbf{10 are statistically significant, and 8 of those
+are losses}. The two significant gains are both the same PL configuration
+($\alpha=4$) in two different cells, and are small ($+0.0014$ and
+$+0.0025$ in \eunorm{}) against losses roughly an order of magnitude
+larger elsewhere.
+
+Kim and Diaz's own reported result is more nuanced than ``fair rankings
+often outperform'': they report an overall fairness/quality tradeoff in
+which moderate fairness settings sometimes preserve or improve utility.
+Given that our evaluation covers 2 of their 4 generators, 2 of their 3
+retrievers, and $N=10$ sampled rankings against their $N=100$, we do not
+frame this as contradicting their result outright. Within the two smaller
+generators and two retrievers evaluated here, however, we do not
+reproduce the pattern that moderate fair reranking frequently preserves or
+improves deterministic-baseline utility: the direction is overwhelmingly
+negative, with two small, real, but practically negligible exceptions.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.85\textwidth]{fig1_headroom.pdf}
+\caption{Deterministic-baseline generation quality (\eunorm{}) per LaMP
+task, for all four (generator, retriever) cells. LaMP tasks differ
+substantially in achievable utility even after normalization, motivating
+the per-query normalization used throughout (Section~\ref{sec:normalization}).}
+\label{fig:fig1}
+\end{figure}
+
+\subsection{Finding 2: A Real Fairness--Utility Tradeoff Within PL's Own Fairness Dial}
+\label{sec:finding2}
+
+We regress \eunorm{} on \eednorm{}, restricted to PL rows only, controlling
+for \ildnorm{} and generator/retriever indicators:
+\begin{multline}
+\eunorm(q,s) = \beta_0 + \beta_1\,\eednorm(q,s) + \beta_2\,\ildnorm(q,s)
++ \beta_3\,\mathbb{1}[\text{Base}] + \beta_4\,\mathbb{1}[\text{Contriever}]
++ \varepsilon(q,s), \\ s \in \text{PL rows}.
+\label{eq:finding2}
+\end{multline}
+Restricting to PL rows avoids mixing a within-method fairness manipulation
+(PL's $\alpha$) with a between-method contrast (MMR and the deterministic
+baseline sit at a fixed $\eed\approx1$ regardless of $\lambda$), which
+would not be a clean fairness-dial estimate.
+
+The primary estimate is $\hat\beta_1 = +0.0735$ (cluster-robust
+$p=6.3\times10^{-54}$, $n=52{,}568$, 4{,}269 query clusters; the naive,
+non-clustered $p=2.1\times10^{-93}$ overstates confidence by treating
+repeated observations of the same query as independent). Because lower
+\eed{} means fairer, a \emph{positive} coefficient means that
+\textbf{less fair, more disparate rankings are associated with higher
+utility} --- the opposite of what a ``fairness helps'' story would
+predict.
+
+\textbf{Robustness.} Leave-one-task-out, on the identical specification
+and cluster-robust inference, keeps the coefficient positive and highly
+significant under every single-task exclusion, ranging from $+0.0613$
+(dropping LaMP-4, $p=1.9\times10^{-27}$) to $+0.0834$ (dropping LaMP-5,
+$p=2.7\times10^{-53}$); no sign or significance flips. Query fixed effects
+--- isolating the within-query association between \eednorm{} and
+\eunorm{} from between-query composition --- give $+0.0518$
+($p=2.0\times10^{-30}$); the finer query$\times$generator$\times$retriever
+fixed effect, which isolates purely the $\alpha$-driven variation for one
+exact query in one exact cell, gives $+0.0526$ ($p=2.4\times10^{-30}$),
+essentially unchanged from the coarser fixed effect. The pooled estimate
+was picking up some between-query variation, but the within-query
+association remains substantial under every specification we tested
+(Table~\ref{tab:fe-summary}).
+
+\textbf{Task heterogeneity.} Fit on each task alone (no leave-one-task-out
+exclusion, no other controls), the coefficient is positive in all seven
+tasks, but not statistically significant on two of them in isolation
+(LaMP-3, $p=0.31$; LaMP-7, $p=0.71$); the remaining five are individually
+significant and positive. Unlike Findings 3 and 4, no task individually
+reverses this association's sign. We nonetheless describe this as a
+robust \emph{pooled} association rather than a claim that it is
+statistically detectable within every single task in isolation, since two
+of the seven do not reach significance on their own.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.92\textwidth]{fig2_fairness_utility_map.pdf}
+\caption{Fairness (\eednorm{}, higher is less fair) versus utility
+(\eunorm{}), per-setting means, one panel per generator/retriever cell.
+PL's $\alpha$-trajectory is highlighted (triangles); MMR (circles) and the
+deterministic baseline (star) are shown for context, but the Finding 2
+regression (Eq.~\ref{eq:finding2}) uses PL rows only.}
+\label{fig:fig2}
+\end{figure}
+
+\subsection{Finding 3: No General Utility Benefit From MMR Diversity}
+\label{sec:finding3}
+
+If diversity were secretly responsible for any apparent fairness benefit,
+diversity should help on its own, holding fairness constant --- exactly
+what MMR, which has no fairness mechanism, lets us test. We regress
+\eunorm{} on \ildnorm{} within MMR rows only (exposure disparity is fixed
+near the deterministic level, $\eed\approx1$, for all MMR settings):
+\begin{multline}
+\eunorm(q,s) = \gamma_0 + \gamma_1\,\ildnorm(q,s) + \gamma_2\,\mathbb{1}[\text{Base}]
++ \gamma_3\,\mathbb{1}[\text{Contriever}] + \varepsilon(q,s), \\ s \in \text{MMR rows}.
+\label{eq:finding3}
+\end{multline}
+
+We find \textbf{no evidence of a general utility benefit from increased
+MMR diversity}: the pooled association is modestly negative,
+$\hat\gamma_1=-0.0675$ ($n=91{,}994$), cluster-robust $p=0.0115$ --- real,
+but a considerably more modest significance level than the naive
+$p=5.6\times10^{-10}$ suggested, since the repeated-query structure was
+inflating confidence. We treat $p=0.0115$ as modest evidence for a real
+but small effect, not overwhelming evidence.
+
+\textbf{Robustness.} The pooled coefficient stays negative under every
+single-task exclusion (a sign check; no leave-one-task-out significance
+claim is at stake here), but it does not hold in every task individually:
+fit on LaMP-2 or LaMP-5 alone, the coefficient is positive. The pooled
+negative association is robust to removing any one task, while the
+direction itself is heterogeneous across tasks --- diversity's effect
+looks benchmark-dependent, not a fixed property of RAG generation. Query
+fixed effects give $-0.0820$ ($p=2.4\times10^{-4}$), if anything larger in
+magnitude than the pooled estimate; the finer
+query$\times$generator$\times$retriever fixed effect gives $-0.0785$
+($p=5.0\times10^{-4}$), essentially unchanged (Table~\ref{tab:fe-summary}).
+
+\textbf{Per-cell heterogeneity.} Figure~\ref{fig:fig4} and
+Table~\ref{tab:percell} report the identical bivariate specification
+(\ildnorm{} only, no controls) fit separately within each cell, with
+cluster-robust inference. Only the Flan-T5-Base/BM25 cell is individually
+significant. A formal test of whether the visually larger Base-cell
+coefficients reflect a genuine generator-size interaction --- a pooled
+within-MMR regression with an \ildnorm{}$\times$generator interaction
+term, cluster-robust by query and controlling for task and retriever ---
+gives $p=0.28$: not significant. The descriptive per-cell pattern in
+Figure~\ref{fig:fig4} is real and visible, but the formal test does not
+confirm generator size as its driver.
+
+\begin{table}[htbp]
+\centering
+\caption{Per-cell bivariate regression of \eunorm{} on \ildnorm{} within
+MMR rows (no controls), matching Figure~\ref{fig:fig4} exactly.}
+\label{tab:percell}
+\begin{tabular}{lrl}
+\toprule
+Cell & Coefficient & $p$ \\
+\midrule
+Flan-T5-Small / BM25 & $-0.0374$ & $0.34$ \\
+Flan-T5-Small / Contriever & $-0.0149$ & $0.69$ \\
+Flan-T5-Base / BM25 & $-0.1483$ & $8.9\times10^{-5}$ \\
+Flan-T5-Base / Contriever & $-0.0728$ & $0.068$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.72\textwidth]{fig4_ild_signflip.pdf}
+\caption{Within-MMR association between diversity and utility, per cell,
+with exposure disparity fixed at the deterministic level. Coefficients
+correspond to Table~\ref{tab:percell}.}
+\label{fig:fig4}
+\end{figure}
+
+\textbf{Direct MMR-vs-deterministic comparison.} As a complementary,
+non-regression check, we test whether MMR ever significantly beats or
+loses to the deterministic baseline directly: paired per-query, all
+$7\;\lambda$ values $\times\;4$ cells $=28$ comparisons (every MMR setting
+run, not a pre-selected subset), Holm-corrected within each cell's 7-test
+family. \textbf{4 of 28 are significant, and all 4 are losses}
+(Table~\ref{tab:mmr-vs-det}). The pattern is consistent with the negative
+diversity--utility association above (lower $\lambda$ trades more
+relevance for more diversity, not diversity in isolation, so this is not
+independent confirmation of a diversity-specific effect): every
+significant loss occurs at the two strongest-diversity settings, and the
+per-cell delta shrinks toward zero monotonically as $\lambda\to1$, where
+it is exactly 0.0 in every cell by the construction check of
+Section~\ref{sec:setup}. Overall, 19 of 28 comparisons point negative, and
+MMR shows no significant utility \emph{win} over the deterministic
+baseline in any of the 28 settings tested.
+
+\begin{table}[htbp]
+\centering
+\caption{MMR versus deterministic baseline, paired per-query, aggregated
+over the four generator/retriever cells (28 comparisons total,
+Holm-corrected within each cell's 7-test family).}
+\label{tab:mmr-vs-det}
+\begin{tabular}{lrr}
+\toprule
+MMR $\lambda$ & Cells with negative $\Delta$ (of 4) & Cells significant (of 4) \\
+\midrule
+0.15 & 4 & 3 \\
+0.30 & 4 & 1 \\
+0.45 & 4 & 0 \\
+0.55 & 2 & 0 \\
+0.70 & 3 & 0 \\
+0.85 & 2 & 0 \\
+1.00 & 0 (exactly zero, by construction) & 0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Finding 4: A Residual PL--MMR Utility Difference After Adjusting for Diversity}
+\label{sec:finding4}
+
+Restricting to PL and MMR rows, we ask whether being a PL setting (versus
+MMR) predicts a further utility difference once measured diversity is
+accounted for. This is a regression adjustment, not a matching procedure.
+
+\textbf{Additive specification.} Table~\ref{tab:finding4-additive}
+reports the per-cell coefficient of a PL indicator on \eunorm{},
+controlling for \ildnorm{}; all four cells are negative, significant, and
+of similar magnitude. Pooling with a single common \ildnorm{} slope for PL
+and MMR gives $\hat\beta_1=-0.0194$ (cluster-robust $p=8.8\times10^{-34}$)
+--- but before treating this single number as the answer, we test whether
+a single common slope is the right model.
+
+\begin{table}[htbp]
+\centering
+\caption{Per-cell coefficient of the PL indicator on \eunorm{}, controlling
+for \ildnorm{} (additive specification).}
+\label{tab:finding4-additive}
+\begin{tabular}{lrl}
+\toprule
+Cell & Coefficient & $p$ \\
+\midrule
+Flan-T5-Small / BM25 & $-0.0130$ & $1.1\times10^{-4}$ \\
+Flan-T5-Base / BM25 & $-0.0226$ & $8.2\times10^{-11}$ \\
+Flan-T5-Small / Contriever & $-0.0186$ & $4.7\times10^{-8}$ \\
+Flan-T5-Base / Contriever & $-0.0227$ & $1.3\times10^{-10}$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Primary specification: does the gap depend on diversity level?}
+We add a PL$\times$\ildnorm{} interaction term:
+\begin{multline}
+\eunorm(q,s) = \beta_0 + \beta_1\,\isPL(s) + \beta_2\,\ildnorm(q,s) \\
++ \beta_3\,\big(\isPL(s)\times\ildnorm(q,s)\big) + \text{controls} + \varepsilon(q,s).
+\label{eq:finding4-interaction}
+\end{multline}
+The interaction is significant in the pooled specification
+($\hat\beta_3=+0.0293$, $p=0.0125$): the two methods' \ildnorm{} slopes
+are not identical, so a single additive coefficient understates what is
+happening. Because \ildnorm{} is not centered, $\hat\beta_1$ alone is the
+model's fitted PL--MMR gap specifically at $\ildnorm=0$; that value does
+occur in the data (both methods' observed \ildnorm{} minimum is exactly
+0.0) but is rare, since \ildnorm{}'s own 10th percentile is already 0.84.
+Table~\ref{tab:finding4-conditional} reports the conditional gap,
+$\Delta(\ildnorm)=\hat\beta_1+\hat\beta_3\cdot\ildnorm$, at several points
+across the observed range, together with the average marginal effect
+(AME), the same quantity evaluated at the empirical mean of \ildnorm{}.
+
+\begin{table}[htbp]
+\centering
+\caption{Conditional PL--MMR gap at points across the observed \ildnorm{}
+range, and the average marginal effect (AME), from the interaction model
+(Eq.~\ref{eq:finding4-interaction}).}
+\label{tab:finding4-conditional}
+\begin{tabular}{lrrr}
+\toprule
+\ildnorm{} level & $\Delta$(PL$-$MMR) & 95\% CI & $p$ \\
+\midrule
+0 (observed floor, rare) & $-0.0464$ & $[-0.068,\,-0.025]$ & $2.1\times10^{-5}$ \\
+$p_{10}$ (0.84) & $-0.0218$ & $[-0.025,\,-0.018]$ & $2.5\times10^{-32}$ \\
+median (0.96) & $-0.0181$ & $[-0.021,\,-0.015]$ & $2.8\times10^{-27}$ \\
+$p_{90}$ (0.99) & $-0.0172$ & $[-0.021,\,-0.014]$ & $3.6\times10^{-21}$ \\
+\textbf{mean (AME)} & \textbf{$-0.0192$} & \textbf{$[-0.022,\,-0.016]$} & \textbf{$1.5\times10^{-33}$} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The gap is largest, about $-0.046$, in the small, rare tail of
+low-diversity settings, and narrows to roughly $-0.017$ to $-0.022$ across
+the bulk of the data ($p_{10}$ to $p_{90}$ of observed \ildnorm{}). We
+treat the AME, $-0.0192$, as the headline single-number summary of
+Finding 4: a proper average over the interaction model rather than an
+assumption of one fixed slope, and it lands almost exactly where the
+simpler additive coefficient ($-0.0194$) did.
+
+\textbf{Is the interaction itself robust?} Not entirely, though the AME
+built from it is. Under the strictest identification we use ---
+query$\times$generator$\times$retriever fixed effects --- the interaction
+shrinks and loses significance ($\hat\beta_3=+0.0157$, $p=0.15$), about
+half the pooled magnitude and no longer distinguishable from zero.
+Leave-one-task-out on the pooled interaction model keeps the coefficient
+positive when 5 of 7 tasks are dropped individually
+(range $+0.023$ to $+0.037$, $p$ from $0.003$ to $0.06$), but
+\textbf{flips sign when LaMP-6 is dropped} ($-0.0280$, $p=0.16$, itself
+not significant either way). We therefore treat the diversity-dependence
+pattern --- the interaction term itself --- as a suggestive, secondary
+observation, not an established one. What \emph{does} survive, robustly,
+across every specification we tried (pooled, query fixed effects,
+query$\times$generator$\times$retriever fixed effects, and all seven
+leave-one-task-out folds) is the AME itself: it ranges narrowly from
+$-0.0161$ to $-0.0217$ across every leave-one-task-out fold (all
+$p<10^{-17}$), and from $-0.0192$ to $-0.0200$ across the pooled and
+fixed-effects variants (Table~\ref{tab:fe-summary}), always
+highly significant and never close to flipping sign. Figure~\ref{fig:fig7}
+shows the raw per-quintile pattern that motivates the interaction check;
+we caution against reading the apparent low-vs-high-diversity gap in that
+figure as an established, robust pattern in its own right --- it is the
+AME in Table~\ref{tab:fe-summary}, not the bin-level shape of
+Figure~\ref{fig:fig7}, that is the robust quantity.
+
+\textbf{What this does and does not establish.} Adjusting for \ildnorm{}
+controls for one measured outcome of the ranking, not for everything that
+differs between PL and MMR: PL is stochastic and MMR deterministic, the
+two methods may preserve the underlying relevance ordering differently,
+and PL introduces variance across repeated draws that MMR does not have.
+The AME is therefore an \emph{average adjusted difference} between PL and
+MMR after controlling for measured \ildnorm{}, not a causal estimate of
+what fairness itself costs.
+
+\textbf{Common support.} Does the comparison rely on extrapolating outside
+the diversity range either method actually reaches? No: PL's and MMR's
+measured \ildnorm{} distributions essentially fully overlap (matched
+5th/median/95th percentiles), and restricting to their common support
+changes nothing ($\hat\beta_1=-0.0193$, $p=8.8\times10^{-34}$; all
+144{,}562 rows already fall inside the overlap).
+
+\textbf{Mechanism test.} We hypothesized that PL pays a \emph{relevance}
+cost --- stochastic sampling moves away from the highest-ranked item, and
+that specifically, not diversity, explains the residual. \eer{} is a
+direct proxy for exposure-relevance alignment. Adding \eernorm{} as a
+covariate moves $\hat\beta_1$ from $-0.0194$ to $-0.0187$
+($p=3.0\times10^{-34}$) --- essentially unchanged, even though \eernorm{}
+itself is strongly associated with utility on its own
+($\hat\beta=+0.158$, $p=5.1\times10^{-104}$, a sanity check that \eernorm{}
+behaves as expected). \textbf{This relevance-cost hypothesis is not
+confirmed by the test.} PL underperforms MMR on average after adjusting
+for \ildnorm{}, robustly across the specifications tested; the pooled
+interaction model suggests a larger disadvantage in the rare
+low-diversity tail, but that interaction does not survive the strictest
+fixed-effects and leave-one-task-out checks, and the mechanism for the
+residual remains open. Plausible candidates include the stochasticity
+itself (variance, not just a mean shift) or something \ildnorm{} and
+\eernorm{} together do not capture, but we have not demonstrated which.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.92\textwidth]{fig7_eu_by_diversity_level.pdf}
+\caption{Mean utility by diversity quintile, MMR versus PL, with the
+deterministic baseline shown for reference. This raw, descriptive pattern
+motivated the interaction check of Table~\ref{tab:finding4-conditional};
+as discussed in the text, the AME is the robust summary of Finding 4, not
+the specific low-vs-high quintile shape visible here.}
+\label{fig:fig7}
+\end{figure}
+
+\section{Robustness Analyses}
+\label{sec:robustness}
+
+\textbf{Leave-one-task-out.} The headline pooled coefficients for
+Findings 2 and 3 were checked leave-one-task-out; neither's main
+conclusion depends on any single task remaining in the sample. Finding 4's
+AME is similarly leave-one-task-out robust (every fold $-0.016$ to
+$-0.022$, always significant), while the PL$\times$\ildnorm{} interaction
+underlying its secondary diversity-dependence framing is not (it flips
+sign when LaMP-6 is dropped). This does not cover every secondary
+specification in this paper (per-cell regressions, the generator
+interaction, the \eer{} mechanism check); those were not individually
+re-run leave-one-task-out.
+
+\textbf{Cluster-robust inference.} Added throughout to correct for
+repeated observations of the same query across settings; it changes exact
+significance levels (most notably Finding 3, where the naive
+$p=5.6\times10^{-10}$ becomes $p=0.0115$ once clustering is applied) but
+does not overturn any finding's direction or overall conclusion.
+
+\textbf{Fixed effects.} Table~\ref{tab:fe-summary} summarizes all three
+findings under query fixed effects and the finer
+query$\times$generator$\times$retriever fixed effect. For Finding 4, we
+report the AME from the interaction model at each fixed-effects level
+(not the additive coefficient) as the headline robustness quantity, per
+the primary specification of Section~\ref{sec:finding4}; the additive
+coefficient (also fixed-effects-robust, at $-0.0200$ under both levels) is
+a secondary check. The two fixed-effects levels barely differ from each
+other for any finding, indicating that cell composition was not doing
+hidden work in the coarser, query-only version.
+
+\begin{table}[htbp]
+\centering
+\caption{Pooled coefficients versus query fixed effects and the finer
+query$\times$generator$\times$retriever fixed effect. Finding 4's row
+reports the AME from the interaction model (Eq.~\ref{eq:finding4-interaction}),
+not the additive coefficient, consistent with Section~\ref{sec:finding4}.}
+\label{tab:fe-summary}
+\small
+\begin{tabular}{lccc}
+\toprule
+Finding & Pooled & Query FE & Query$\times$gen.$\times$retr.\ FE \\
+\midrule
+2 (coef.\ \eed{}, PL rows) & $+0.0735$ & $+0.0518$ & $+0.0526$ \\
+ & ($p=6.3\times10^{-54}$) & ($p=2.0\times10^{-30}$) & ($p=2.4\times10^{-30}$) \\
+3 (coef.\ \ild{}, MMR rows) & $-0.0675$ & $-0.0820$ & $-0.0785$ \\
+ & ($p=0.0115$) & ($p=2.4\times10^{-4}$) & ($p=5.0\times10^{-4}$) \\
+4 (AME, PL+MMR) & $-0.0192$ & $-0.0200$ & $-0.0200$ \\
+ & ($p=1.5\times10^{-33}$) & ($p=1.6\times10^{-36}$) & ($p=2.0\times10^{-36}$) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Normalization sensitivity.} As described in
+Section~\ref{sec:normalization}, filling the 3.5\% of rows excluded by the
+zero-denominator condition, rather than dropping them, leaves all three
+conclusions unchanged.
+
+\textbf{Task-robustness figure.} Figure~\ref{fig:fig8} visualizes the
+leave-one-task-out check for all three pooled additive coefficients
+together; all three retain their sign and significance status under every
+single-task exclusion.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{fig8_task_sensitivity.pdf}
+\caption{Leave-one-task-out robustness for the three pooled additive
+coefficients (Findings 2--4). Top row: coefficient when each task is
+dropped, against the full-sample estimate (blue band, 95\% CI). Bottom
+row: coefficient fit on each task alone. No exclusion flips sign or
+significance status for any of the three pooled coefficients.}
+\label{fig:fig8}
+\end{figure}
+
+\section{Discussion}
+\label{sec:discussion}
+
+This paper set out to answer a specific question: when fair reranking
+appears to help or hurt RAG generation quality, is that attributable to
+fairness itself, or to the within-list diversity the fairness mechanism
+happens to induce? Across the settings we test, the answer is that
+\textbf{measured within-list diversity (ILD-Jaccard) alone does not
+account for the difference between PL and MMR utility}. PL's own
+fairness dial is associated with a real, robust, and negative
+relationship to utility (Finding 2); MMR's diversity dial shows no general
+utility benefit of its own, and if anything a modest negative association
+(Finding 3); and PL retains an average utility disadvantage relative to
+MMR even after adjusting for measured diversity (Finding 4). If diversity
+were the hidden mechanism behind an apparent fairness benefit, MMR's
+explicit diversity manipulation should have shown a positive utility
+association on its own; it does not.
+
+This is a narrower conclusion than Kim and Diaz's original finding might
+suggest, but the two results are not necessarily in tension: our
+evaluation covers 2 of their 4 generators, 2 of their 3 retrievers, and a
+tenfold-lower PL sample count ($N=10$ versus $N=100$), and we do not claim
+to have reproduced their full experimental grid. What we can say is that,
+within the Flan-T5-Small and Flan-T5-Base, BM25 and Contriever setting we
+do test, fair reranking does not reproduce the pattern of frequently
+preserving or improving utility, and that the diversity-as-mechanism
+hypothesis specifically does not explain the residual gap between the two
+reranking families.
+
+It is important to be precise about what the PL-vs-MMR comparison in
+Finding 4 does and does not identify. Because PL and MMR differ along
+several dimensions besides measured diversity --- stochastic sampling
+versus deterministic selection, and how each method preserves or disturbs
+the underlying relevance ordering, among others --- the residual utility
+gap after adjusting for \ildnorm{} is an \emph{adjusted association}, not
+a causal estimate of what fairness itself costs. We tested the most
+obvious candidate explanation directly: that PL's randomization imposes a
+relevance cost, measurable via exposure-relevance alignment (\eer{}).
+Adding \eer{} as a covariate left the residual essentially unchanged,
+so this specific mechanism is not confirmed. The true mechanism --- most
+plausibly related to the variance PL's stochastic sampling introduces,
+rather than only its mean shift, or to some property of the ranking that
+neither \ildnorm{} nor \eernorm{} captures --- remains an open question
+for future work, which we discuss should require a design that varies
+fairness and diversity independently rather than only adjusting for one
+while measuring the other.
+
+Finally, task heterogeneity recurs throughout: Finding 2's association
+reverses sign on LaMP-7 alone; Finding 3's reverses on LaMP-2 and LaMP-5
+alone; Finding 4's secondary diversity-dependence interaction reverses
+sign when LaMP-6 is excluded. None of these task-level reversals overturn
+the corresponding pooled, leave-one-task-out-robust conclusion, but they
+are a reminder that these associations are properties of a
+query-weighted pool of seven quite different personalization tasks, not
+of RAG generation in general.
+
+\section{Limitations}
+\label{sec:limitations}
+
+\begin{itemize}
+\item \textbf{Generator scale.} We evaluate only Flan-T5-Small (77M) and
+  Flan-T5-Base (250M). Whether this tradeoff grows, shrinks, or reverses
+  at larger generator scales is untested here; utility labels exist for a
+  much larger (XXL) generator in the source release, but it does not fit
+  the GPU hardware available for this project.
+\item \textbf{Retriever coverage.} We evaluate BM25 and Contriever only,
+  2 of the 3 retrievers in the source paper's evaluation.
+\item \textbf{PL sample count.} $N=10$ sampled rankings per $(q,\alpha)$
+  pair, against the source paper's $N=100$; our PL-based \eed{}/\eu{}
+  estimates carry more Monte Carlo noise than theirs. A cheap follow-up
+  --- recomputing \eed{} only at $N=100$ on a subset, without regenerating
+  text --- would bound how much this matters, but was not run for this
+  paper.
+\item \textbf{Diversity operationalization.} We measure diversity as
+  ILD-Jaccard, a single specific notion of within-list textual variety;
+  our conclusion that measured diversity does not account for the
+  PL--MMR gap is a claim about \emph{this} operationalization, not about
+  every possible notion of diversity.
+\item \textbf{Loose fairness--diversity coupling.} \eed{} and \ild{} are
+  conceptually distinct quantities that are only loosely, not strictly,
+  coupled under PL in this data (Section~\ref{sec:premise}); this limits
+  how cleanly any \ildnorm{}-adjusted comparison can isolate fairness's
+  own contribution.
+\item \textbf{PL and MMR differ beyond diversity.} PL is stochastic and
+  MMR deterministic; the two methods may preserve the original relevance
+  ordering differently, and only PL introduces sampling variance across
+  repeated draws. Finding 4's residual should not be read as an isolated
+  measurement of fairness's causal effect for this reason.
+\item \textbf{Task dependence.} Findings 2 and 3's pooled effects are
+  leave-one-task-out robust, but individual tasks (LaMP-7 for the
+  fairness--utility tradeoff; LaMP-2 and LaMP-5 for the diversity
+  association) go the opposite direction on their own. Finding 4's AME is
+  similarly robust, but the interaction term underlying its secondary
+  diversity-dependence framing is not (it loses significance under the
+  strictest fixed effects and flips sign when LaMP-6 is dropped); we
+  treat that pattern as secondary for exactly this reason.
+\end{itemize}
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+We asked whether an apparent fairness benefit in RAG generation quality is
+attributable to fairness itself or to the within-list diversity that a
+fairness mechanism happens to induce. On a full-coverage evaluation across
+all seven LaMP tasks, two generators, and two retrievers, we find that PL
+fair reranking does not generally improve utility over a deterministic
+baseline; that within PL's own fairness dial, greater exposure equality is
+robustly associated with lower utility; that MMR's explicit diversity dial
+shows no general utility benefit on its own; and that PL retains an
+average utility disadvantage relative to MMR even after adjusting for
+measured diversity, a disadvantage that a direct test of a relevance-cost
+mechanism does not explain. Taken together, \textbf{measured within-list
+diversity (ILD-Jaccard) alone does not account for the PL--MMR utility
+difference} we observe, while the residual itself should not be read as
+the isolated causal cost of fairness, since PL and MMR differ along
+dimensions besides diversity. Determining what does explain that residual
+--- and whether these patterns persist at larger generator scale and
+across additional retrievers --- is the natural next step, and would
+benefit from an experimental design that varies fairness and diversity
+independently rather than adjusting for one while measuring the other.
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\appendix
+\section{Supplementary Figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.85\textwidth]{fig5_matched_diversity.pdf}
+\caption{Per-task detail underlying Finding 4: mean \eunorm{} difference
+(PL minus MMR) at diversity-matched bins, by LaMP task and
+generator/retriever cell. Residuals are small and mostly negative,
+consistent with the pooled AME of Section~\ref{sec:finding4}; this
+per-task breakdown is supplementary detail, not an independent robustness
+claim.}
+\label{fig:fig5}
+\end{figure}
+
+\end{document}

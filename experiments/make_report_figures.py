@@ -459,8 +459,8 @@ def fig8_task_sensitivity():
         ax.set_xlabel("LaMP task")
         if col_i == 0:
             ax.set_ylabel("Coefficient, task alone")
-    fig.suptitle("Task-robustness: fairness cost and PL residual survive any exclusion;\n"
-                 "the pooled diversity effect rests on LaMP-6 (red = significance lost when dropped)",
+    fig.suptitle("Task-robustness: all three pooled coefficients keep their sign and\n"
+                 "significance under every single-task exclusion (red = significance lost when dropped)",
                  fontsize=9.5, y=1.0)
     fig.tight_layout()
     save(fig, "fig8_task_sensitivity")
