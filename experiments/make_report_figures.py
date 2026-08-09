@@ -83,7 +83,11 @@ print(f"{len(run_dirs)} runs -> {len(macro_df)} macro rows, {len(query_norm_df)}
 
 # ---------------------------------------------------------------- figure 1
 def fig1_headroom():
-    det = macro_df[macro_df["rerank_method"] == "deterministic"]
+    # Normalized EU (not raw) - LaMP tasks use different metrics on different scales
+    # (accuracy, MAE, ROUGE-L), so raw EU heights are not comparable across tasks;
+    # expected_utility_norm is per-query max-normalized (see analysis/normalization.py)
+    # specifically to make this kind of cross-task comparison valid.
+    det = query_norm_df[query_norm_df["rerank_method"] == "deterministic"]
     tasks = sorted(det["lamp_num"].unique())
     x = np.arange(len(tasks))
     width = 0.2
@@ -91,14 +95,14 @@ def fig1_headroom():
     for i, (gen, ranker) in enumerate(CELLS):
         vals = [
             det[(det["generator_name"] == gen) & (det["ranker"] == ranker)
-                & (det["lamp_num"] == t)]["expected_utility"].mean()
+                & (det["lamp_num"] == t)]["expected_utility_norm"].mean()
             for t in tasks
         ]
         ax.bar(x + (i - 1.5) * width, vals, width,
                color=GEN_COLOR[gen], alpha=1.0 if ranker == "bm25" else 0.55,
                label=cell_tag(gen, ranker))
     ax.set_xticks(x, [f"LaMP-{int(t)}" for t in tasks])
-    ax.set_ylabel("Deterministic raw EU")
+    ax.set_ylabel("Deterministic EU$_{norm}$")
     ax.set_title("Generator headroom: deterministic-ranking utility per task", pad=44)
     ax.legend(ncols=2, frameon=False, loc="lower center", bbox_to_anchor=(0.5, 1.0))
     save(fig, "fig1_headroom")
@@ -275,7 +279,7 @@ def fig4_ild_signflip():
                     ha="left", va="center", fontsize=8)
     ax.set_xticks(xs, labels)
     ax.set_ylabel("Within-MMR coef(ILD) on EU$_{norm}$")
-    ax.set_title("Diversity's harm to utility fades with generator size\n(within-MMR regression, fairness held fixed at EE-D = 1)")
+    ax.set_title("Within-MMR association between diversity and utility, per cell\n(exposure disparity fixed at the deterministic level, EE-D = 1)")
     ax.margins(x=0.18, y=0.25)
     save(fig, "fig4_ild_signflip")
 
