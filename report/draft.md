@@ -305,13 +305,6 @@ finding's direction or overall conclusion.
   but individual tasks (LaMP-7 for the tradeoff; LaMP-2, LaMP-5 for
   diversity) go the other way on their own — both effects look
   benchmark-shaped rather than universal.
-- ⚠️ **Open item, needs a call:** an earlier pass claimed flanT5Base's
-  baseline quality was several times flanT5Small's on some task, as a
-  "floor effect." Not yet re-derived cleanly on the full dataset in an
-  apples-to-apples way (LaMP's tasks use different metrics/scales, so
-  pooling them naively — which a quick check this session did — isn't
-  valid either). Options: (a) do a proper per-task re-check, or (b) drop
-  the claim; it isn't load-bearing for the main story.
 
 ## Bottom line
 
