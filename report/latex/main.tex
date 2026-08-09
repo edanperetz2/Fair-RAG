@@ -52,7 +52,9 @@ available queries retained by Kim and Diaz's generator-specific
 fairness-evaluation collections for these two generators, 336 experiment
 configurations, 163{,}392 pre-exclusion query-setting rows) by using
 Maximal Marginal Relevance (MMR) --- a reranker with an explicit diversity
-dial and no fairness objective --- to separate the two constructs. We find no general or consistent utility improvement from
+dial and no fairness objective --- as a diversity-focused comparator for
+testing whether measured within-list diversity is sufficient to account
+for PL's utility behavior. We find no general or consistent utility improvement from
 PL reranking over the deterministic baseline (10 of 16 Holm-corrected
 tests are significant: 8 of those 10 are losses and only 2 small gains);
 that within PL's own fairness dial, greater exposure equality is robustly
