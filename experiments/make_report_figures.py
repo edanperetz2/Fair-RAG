@@ -376,7 +376,6 @@ def fig5_matched_diversity():
                color=GEN_COLOR[gen], alpha=1.0 if ranker == "bm25" else 0.55,
                label=cell_tag(gen, ranker))
     ax.axhline(0, color="black", linewidth=0.8)
-    ax.axhspan(-0.05, 0.05, color="gray", alpha=0.12, zorder=0)
     ax.set_xticks(x, [f"LaMP-{int(t)}" for t in all_tasks])
     ax.set_ylabel("$\\Delta$EU$_{norm}$ (PL $-$ MMR)\nwithin shared ILD bins, per task")
     ax.set_title("PL vs MMR utility within shared ILD bins, per task: small, mostly negative residuals", pad=44)

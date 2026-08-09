@@ -132,14 +132,16 @@ conflate in practice but are conceptually distinct: \emph{fairness}, which
 we operationalize as expected exposure equality across repeated rankings
 (Expected Exposure Disparity, \eed, lower is fairer), and \emph{diversity},
 which we operationalize as within-list textual variety in a single
-ranking (ILD-Jaccard). PL moves both at once. What lets us pull them apart
-is Maximal Marginal Relevance (MMR)~\citep{carbonell1998mmr}: a
-deterministic reranker with an explicit relevance-diversity dial and
-\emph{no} fairness objective whatsoever. Comparing PL to MMR after
-adjusting for measured diversity level can reveal whether PL's outcomes
-track diversity alone or whether a residual difference remains --- though,
-as we discuss throughout, that residual is not automatically identifiable
-as ``the causal effect of fairness,'' since PL and MMR differ along
+ranking (ILD-Jaccard). PL moves both at once. MMR provides a
+complementary diversity-focused comparator~\citep{carbonell1998mmr}: it
+has an explicit relevance--diversity dial and no exposure-fairness
+objective. Comparing PL and MMR therefore helps test whether measured
+within-list diversity is sufficient to account for PL's utility pattern,
+while not causally isolating diversity because changing MMR's $\lambda$
+also changes the relevance--diversity tradeoff --- though,
+as we discuss throughout, any residual difference between PL and MMR is
+not automatically identifiable as ``the causal effect of fairness,''
+since PL and MMR differ along
 several dimensions besides diversity (stochastic versus deterministic
 selection, how each preserves the underlying relevance ordering, and
 so on).
@@ -152,7 +154,8 @@ generators); (2) test, rather than assume, whether PL's fairness mechanism
 actually induces the diversity increase the diversity-as-mechanism
 hypothesis requires, at both the aggregate and per-query level; (3) use MMR as a diversity-focused
 comparator with an explicit diversity dial and no fairness objective to
-separate the fairness and diversity constructs empirically, reporting
+test whether measured within-list diversity is sufficient to account for
+PL's utility behavior, reporting
 four main findings with cluster-robust inference, leave-one-task-out
 robustness, and two progressively stricter levels of fixed-effects
 identification on top of the pooled specification; and (4) directly test
@@ -589,7 +592,7 @@ averaged across the four (generator, retriever) cells.
 \textbf{Query-level coupling is weak.} Within PL rows, the Pearson
 correlation between \eednorm{} and \ildnorm{} is
 $r=-0.086$ ($n=54{,}464$) --- a small effect once individual queries are
-considered, swamped by per-query noise in both quantities.
+considered, amid substantial per-query variation in both quantities.
 
 \textbf{The aggregate, by-$\alpha$ pattern is monotonic.} Table~\ref{tab:premise}
 reports the mean source-normalized \eed{} and mean raw \ild{}-Jaccard at
@@ -629,9 +632,9 @@ with higher diversity as an aggregate, by-$\alpha$ tendency (left panel):
 PL's dial moves both expected exposure disparity and diversity at once.
 This aggregate coupling is not tight at the level of individual queries
 (row-level Pearson $r=-0.086$, Section~\ref{sec:premise}). MMR's dial
-(right panel) moves diversity alone, with disparity pinned near the
-deterministic level (EE-D $\approx 1$) and no explicit fairness
-objective, which is what makes it usable as a diversity-focused
+(right panel) changes measured diversity without an explicit fairness
+objective, with exposure disparity remaining near the deterministic
+level (EE-D $\approx 1$), which is what makes it usable as a diversity-focused
 comparator against PL. Bold lines are the mean across the four
 (generator, retriever) cells; thin lines are individual cells.}
 \label{fig:premise}
@@ -694,9 +697,10 @@ is achievable in some absolute sense.}
 We regress \eunorm{} on \eednorm{}, restricted to PL rows only, controlling
 for \ildnorm{} and generator/retriever indicators:
 \begin{multline}
-\eunorm(q,s) = \beta_0 + \beta_1\,\eednorm(q,s) + \beta_2\,\ildnorm(q,s)
-+ \beta_3\,\mathbf{1}\{\text{Base}\} + \beta_4\,\mathbf{1}\{\text{Contriever}\}
-+ \varepsilon(q,s), \\ s \in \text{PL rows}.
+\eunorm(q,g,r,s) = \beta_0 + \beta_1\,\eednorm(q,g,r,s) \\
++ \beta_2\,\ildnorm(q,g,r,s)
++ \beta_3\,\mathbf{1}\{\text{Base}\} + \beta_4\,\mathbf{1}\{\text{Contriever}\} \\
++ \varepsilon(q,g,r,s), \quad s \in \text{PL rows}.
 \label{eq:finding2}
 \end{multline}
 Restricting to PL rows avoids mixing a within-method fairness manipulation
@@ -752,25 +756,27 @@ regression (Eq.~\ref{eq:finding2}) uses PL rows only.}
 \subsection{Finding 3: No General Utility Benefit From MMR Diversity}
 \label{sec:finding3}
 
-If measured within-list diversity were sufficient to explain any apparent
-fairness benefit, diversity should help on its own, holding fairness
-constant --- exactly what MMR, which has no fairness mechanism, lets us
-test. We regress
+If measured ILD-Jaccard were sufficient to explain PL's apparent utility
+behavior, variation induced by MMR in that measured quantity should
+provide corresponding evidence of a general utility benefit. MMR has no
+exposure-fairness objective, but changing $\lambda$ also changes the
+relevance--diversity tradeoff, so this comparison is informative without
+being a causal isolation of diversity. We regress
 \eunorm{} on \ildnorm{} within MMR rows only (exposure disparity is fixed
 near the deterministic level, $\eed\approx1$, for all MMR settings):
 \begin{multline}
-\eunorm(q,s) = \gamma_0 + \gamma_1\,\ildnorm(q,s) + \gamma_2\,\mathbf{1}\{\text{Base}\}
-+ \gamma_3\,\mathbf{1}\{\text{Contriever}\} + \varepsilon(q,s), \\ s \in \text{MMR rows}.
+\eunorm(q,g,r,s) = \gamma_0 + \gamma_1\,\ildnorm(q,g,r,s) + \gamma_2\,\mathbf{1}\{\text{Base}\}
++ \gamma_3\,\mathbf{1}\{\text{Contriever}\} + \varepsilon(q,g,r,s), \\ s \in \text{MMR rows}.
 \label{eq:finding3}
 \end{multline}
 
 We find \textbf{no evidence of a general utility benefit from increased
 MMR diversity}: the pooled association is modestly negative,
-$\hat\gamma_1=-0.0675$ ($n=91{,}994$), cluster-robust $p=0.0115$ --- real,
-but a considerably more modest significance level than the naive
-$p=5.6\times10^{-10}$ suggested, since the repeated-query structure was
-inflating confidence. We treat $p=0.0115$ as modest evidence for a real
-modest negative association, not overwhelming evidence.
+$\hat\gamma_1=-0.0675$ ($n=91{,}994$). The cluster-robust $p=0.0115$
+provides modest evidence for that association, rather than overwhelming
+evidence --- a considerably more modest significance level than the
+naive $p=5.6\times10^{-10}$ suggested, since the repeated-query structure
+was inflating confidence.
 
 \textbf{Robustness.} The pooled coefficient stays negative under every
 single-task exclusion (a sign check; no leave-one-task-out significance
@@ -897,17 +903,17 @@ Flan-T5-Base / Contriever & $-0.0227$ & $1.9\times10^{-16}$ \\
 \textbf{Primary specification: does the gap depend on diversity level?}
 We add a PL$\times$\ildnorm{} interaction term:
 \begin{multline}
-\eunorm(q,s) = \beta_0 + \beta_1\,\isPL(s) + \beta_2\,\ildnorm(q,s) \\
-+ \beta_3\,\big(\isPL(s)\times\ildnorm(q,s)\big)
+\eunorm(q,g,r,s) = \beta_0 + \beta_1\,\isPL(s) + \beta_2\,\ildnorm(q,g,r,s) \\
++ \beta_3\,\big(\isPL(s)\times\ildnorm(q,g,r,s)\big) \\
 + \beta_4\,\mathbf{1}\{\text{Base}\} + \beta_5\,\mathbf{1}\{\text{Contriever}\}
-+ \textstyle\sum_t \beta_t\,\mathbf{1}\{\text{task}=t\} + \varepsilon(q,s).
++ \textstyle\sum_t \beta_t\,\mathbf{1}\{\text{task}=t\} + \varepsilon(q,g,r,s).
 \label{eq:finding4-interaction}
 \end{multline}
 Controls are a generator indicator, a retriever indicator, and LaMP-task
-fixed effects, matching every other pooled specification in this paper;
-inference is cluster-robust by query (CR1 sandwich estimator), and
-Table~\ref{tab:finding4-additive}'s per-cell $p$-values use this same
-cluster-robust inference, not classical standard errors. The interaction
+fixed effects. Inference is cluster-robust by query using the CR1
+sandwich estimator; Table~\ref{tab:finding4-additive}'s per-cell
+$p$-values use the same cluster-robust inference rather than classical
+standard errors. The interaction
 is significant in the pooled specification
 ($\hat\beta_3=+0.0293$, $p=0.0125$): the two methods' \ildnorm{} slopes
 are not identical, so a single additive coefficient understates what is
