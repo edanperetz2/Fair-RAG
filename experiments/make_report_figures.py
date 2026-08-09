@@ -143,7 +143,7 @@ def fig2_fairness_utility_map():
         ax.set_ylabel("EU (normalized)")
     handles, labels = axes.flat[0].get_legend_handles_labels()
     fig.legend(handles, labels, loc="lower center", ncols=3, frameon=False, bbox_to_anchor=(0.5, -0.03))
-    fig.suptitle("Fairness vs. utility across all reranking settings (per-setting means)", y=0.995)
+    fig.suptitle("Overview: fairness vs. utility, all methods (per-setting means) - PL's\n$\\alpha$-trajectory highlighted; the statistical test (Finding 2) uses PL rows only", y=1.01)
     fig.tight_layout()
     save(fig, "fig2_fairness_utility_map")
 
