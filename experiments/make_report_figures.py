@@ -8,12 +8,15 @@ analysis. Outputs both .pdf (for LaTeX inclusion) and .png (for quick review)
 into report/figures/.
 
 Figures:
-  1. Generator headroom  - deterministic raw EU per task, all four (gen, ranker) cells.
+  1. Headroom             - deterministic EU_norm per task, all four (gen, ranker) cells.
   2. Fairness-utility map - per-setting mean EE-D_norm vs EU_norm, one panel per cell.
-  3. Lambda manipulation - lambda -> ILD per task (representative cell) + ILD range per cell.
-  4. ILD sign flip       - within-MMR pooled coef(ILD) with 95% CI, per cell.
-  5. Matched diversity   - PL minus MMR EU_norm delta by ILD quintile, per cell.
-  6. Generator axis      - M2 EE-D coef and M3 interaction coef per generator, 95% CI.
+  2b. Fairness-diversity coupling - PL/MMR dial premise check (aggregate, not per-query).
+  3. Lambda manipulation  - lambda -> ILD per task (representative cell) + ILD range per cell.
+  4. ILD sign flip        - within-MMR per-cell coef(ILD), cluster-robust CI/p, matching Table 4.
+  5. Shared-ILD-bin delta - PL minus MMR EU_norm delta within shared ILD bins, per task (appendix).
+  6. Generator axis       - exploratory EE-D/interaction coefficients; unused in the final report.
+  7. EU by diversity level - descriptive quintile comparison underlying Finding 4's AME.
+  8. Task sensitivity      - LOTO robustness for Findings 2-3's pooled coefficients (2 panels).
 """
 import os
 import sys
@@ -73,6 +76,51 @@ def ci95(model, feature):
     return tcrit * model["std_err"][feature]
 
 
+def fit_cluster_robust(df, feature_cols, target_col, cluster_col="__cluster__"):
+    """CR1 sandwich-estimator OLS, clustered by query (lamp_num+qid). Matches
+    the cluster-robust specification used for every headline number reported
+    in the text/tables (e.g. Table 4's per-cell Finding-3 coefficients) -
+    fit_ols() alone only gives classical (non-clustered) SEs, which is not
+    what any reported p-value in this report actually uses."""
+    work = df.copy()
+    if cluster_col not in work.columns:
+        work[cluster_col] = work["lamp_num"].astype(str) + "_" + work["qid"].astype(str)
+    cols = list(dict.fromkeys(list(feature_cols) + [target_col, cluster_col]))
+    clean = work[cols].dropna()
+    n = len(clean)
+    X = np.column_stack([np.ones(n), clean[list(feature_cols)].to_numpy(dtype=float)])
+    y = clean[target_col].to_numpy(dtype=float)
+    beta, _, _, _ = np.linalg.lstsq(X, y, rcond=None)
+    resid = y - X @ beta
+    xtx_inv = np.linalg.inv(X.T @ X)
+
+    clusters = clean[cluster_col].to_numpy()
+    uniq = np.unique(clusters)
+    g = len(uniq)
+    meat = np.zeros((X.shape[1], X.shape[1]))
+    for cl in uniq:
+        mask = clusters == cl
+        xg = X[mask]
+        ug = resid[mask]
+        score = xg.T @ ug
+        meat += np.outer(score, score)
+    k = X.shape[1]
+    dof_corr = (g / (g - 1)) * ((n - 1) / (n - k - 1))
+    cov = dof_corr * xtx_inv @ meat @ xtx_inv
+    se = np.sqrt(np.diag(cov))
+    t_stats = beta / se
+    p_values = 2 * scipy_stats.t.sf(np.abs(t_stats), df=g - 1)
+    names = ["intercept"] + list(feature_cols)
+    tcrit = scipy_stats.t.ppf(0.975, g - 1)
+    return {
+        "coef": dict(zip(names, beta.tolist())),
+        "se": dict(zip(names, se.tolist())),
+        "p_value": dict(zip(names, p_values.tolist())),
+        "ci95": dict(zip(names, (tcrit * se).tolist())),
+        "n": n, "n_clusters": g,
+    }
+
+
 print("Loading run data...")
 run_dirs = list_run_dirs()
 macro_df = select_best_precision(maybe_to_dataframe(build_macro_comparison_rows(run_dirs)))
@@ -103,7 +151,7 @@ def fig1_headroom():
                label=cell_tag(gen, ranker))
     ax.set_xticks(x, [f"LaMP-{int(t)}" for t in tasks])
     ax.set_ylabel("Deterministic EU$_{norm}$")
-    ax.set_title("Generator headroom: deterministic-ranking utility per task", pad=44)
+    ax.set_title("Deterministic-baseline normalized utility by LaMP task", pad=44)
     ax.legend(ncols=2, frameon=False, loc="lower center", bbox_to_anchor=(0.5, 1.0))
     save(fig, "fig1_headroom")
 
@@ -182,7 +230,7 @@ def fig2b_fairness_diversity_coupling():
     fig, axes = plt.subplots(1, 2, figsize=(6.8, 3.1))
     panels = [
         (axes[0], pl_cells, pl_mean, ["det."] + [f"$\\alpha$={a}" for a in pl_alphas],
-         "PL dial: sampling temperature $\\alpha$\n(right = stronger fairness)"),
+         "PL dial: fairness-control parameter $\\alpha$\n(right = stronger fairness)"),
         (axes[1], mmr_cells, mmr_mean, ["det."] + [f"{l}" for l in mmr_lambdas],
          "MMR dial: relevance weight $\\lambda$\n(right = stronger diversity)"),
     ]
@@ -212,8 +260,9 @@ def fig2b_fairness_diversity_coupling():
     ]
     fig.legend(handles, ["EE-D (unfairness)", "ILD (diversity)"], frameon=False,
                fontsize=8, loc="lower center", ncols=2, bbox_to_anchor=(0.5, -0.06))
-    fig.suptitle("Fairness interventions inherently raise diversity: PL moves both dials at once, MMR moves only diversity",
-                 fontsize=9.5, y=1.02)
+    fig.suptitle("In our experiments, stronger PL fairness intervention coincides with\n"
+                 "higher diversity in aggregate; MMR moves diversity alone",
+                 fontsize=9.5, y=1.04)
     fig.tight_layout()
     save(fig, "fig2b_fairness_diversity_coupling")
 
@@ -256,6 +305,14 @@ def fig3_lambda_manipulation():
 
 # ---------------------------------------------------------------- figure 4
 def fig4_ild_signflip():
+    """Per-cell bivariate coef(ILD) within MMR rows, matching Table 4 exactly:
+    same specification (no controls beyond the cell's own generator/ranker)
+    AND the same cluster-robust (by-query) inference used to compute every
+    p-value quoted for these four cells in the report text and Table 4 -
+    the classical fit_ols() p-value used here previously overstated
+    significance for Base/Contriever (naive p<0.05 vs the correct
+    cluster-robust p=0.068), producing a star/label that disagreed with the
+    table right next to it."""
     fig, ax = plt.subplots(figsize=(5.2, 3.0))
     xs, coefs, cis, colors, labels, ps = [], [], [], [], [], []
     for i, (gen, ranker) in enumerate(CELLS):
@@ -263,10 +320,10 @@ def fig4_ild_signflip():
             (query_norm_df["rerank_method"] == "mmr")
             & (query_norm_df["generator_name"] == gen) & (query_norm_df["ranker"] == ranker)
         ]
-        m = fit_ols(mmr_norm, ["avg_ild_jaccard_norm"], "expected_utility_norm")
+        m = fit_cluster_robust(mmr_norm, ["avg_ild_jaccard_norm"], "expected_utility_norm")
         xs.append(i)
         coefs.append(m["coef"]["avg_ild_jaccard_norm"])
-        cis.append(ci95(m, "avg_ild_jaccard_norm"))
+        cis.append(m["ci95"]["avg_ild_jaccard_norm"])
         colors.append(GEN_COLOR[gen])
         labels.append(f"{GEN_LABEL[gen].split(' ')[0]}\n{RANKER_LABEL[ranker]}")
         ps.append(m["p_value"]["avg_ild_jaccard_norm"])
@@ -274,13 +331,15 @@ def fig4_ild_signflip():
     ax.errorbar(xs, coefs, yerr=cis, fmt="none", ecolor="black", elinewidth=1.2, capsize=4)
     ax.scatter(xs, coefs, c=colors, s=70, zorder=5)
     for x, c, ci, p in zip(xs, coefs, cis, ps):
-        stars = "***" if p < 0.001 else "**" if p < 0.01 else "*" if p < 0.05 else "n.s."
-        ax.annotate(f"{c:+.3f} {stars}", (x, c), textcoords="offset points", xytext=(12, 0),
+        sig_label = f"p={p:.2g}" if p < 0.05 else "n.s."
+        ax.annotate(f"{c:+.3f} ({sig_label})", (x, c), textcoords="offset points", xytext=(12, 0),
                     ha="left", va="center", fontsize=8)
     ax.set_xticks(xs, labels)
     ax.set_ylabel("Within-MMR coef(ILD) on EU$_{norm}$")
-    ax.set_title("Within-MMR association between diversity and utility, per cell\n(exposure disparity fixed at the deterministic level, EE-D = 1)")
-    ax.margins(x=0.18, y=0.25)
+    ax.set_title("Within-MMR association between diversity and utility, per cell\n"
+                 "(exposure disparity fixed at the deterministic level, EE-D = 1;\n"
+                 "cluster-robust 95% CI and $p$-values, by query)")
+    ax.margins(x=0.22, y=0.25)
     save(fig, "fig4_ild_signflip")
 
 
@@ -317,8 +376,8 @@ def fig5_matched_diversity():
     ax.axhline(0, color="black", linewidth=0.8)
     ax.axhspan(-0.05, 0.05, color="gray", alpha=0.12, zorder=0)
     ax.set_xticks(x, [f"LaMP-{int(t)}" for t in all_tasks])
-    ax.set_ylabel("$\\Delta$EU$_{norm}$ (PL $-$ MMR)\nat matched ILD, per task")
-    ax.set_title("PL vs MMR utility at matched diversity, per task: small, mostly negative residuals", pad=44)
+    ax.set_ylabel("$\\Delta$EU$_{norm}$ (PL $-$ MMR)\nwithin shared ILD bins, per task")
+    ax.set_title("PL vs MMR utility within shared ILD bins, per task: small, mostly negative residuals", pad=44)
     ax.legend(ncols=2, frameon=False, loc="lower center", bbox_to_anchor=(0.5, 1.0), fontsize=7.5)
     save(fig, "fig5_matched_diversity")
 
@@ -397,14 +456,19 @@ def fig7_eu_by_diversity_level():
 
 # ---------------------------------------------------------------- figure 8
 def fig8_task_sensitivity():
-    """Leave-one-task-out robustness of the three core pooled statistics
-    (mirrors experiments/task_sensitivity.py). Top row: coefficient when each
-    task is dropped, vs the full-sample estimate. Bottom row: each task alone.
-    The one fragile spot - the diversity effect without LaMP-6 - stands out."""
+    """Leave-one-task-out robustness of the two headline pooled additive
+    coefficients (Findings 2-3; mirrors experiments/task_sensitivity.py),
+    each fit on the exact final specification (Finding 2: PL rows only;
+    Finding 3: MMR rows only). Finding 4's robustness is reported via its
+    own AME table (Table 8) and LOTO discussion in the main text instead of
+    here, since its headline quantity (the interaction-model AME) isn't a
+    single additive coefficient this LOTO-panel format can show alongside
+    Findings 2-3 without implying the fragile PL*ILD interaction is the
+    headline result. Top row: coefficient when each task is dropped, vs the
+    full-sample estimate. Bottom row: each task alone."""
     qd = query_norm_df.copy()
     qd["is_base"] = (qd["generator_name"] == "flanT5Base").astype(float)
     qd["is_contriever"] = (qd["ranker"] == "contriever").astype(float)
-    qd["is_pl"] = (qd["rerank_method"] == "pl").astype(float)
 
     def fit_with_dummies(sub, target, controls):
         sub = sub.dropna(subset=[c for c in {target, *controls, "expected_utility_norm"}
@@ -418,16 +482,14 @@ def fig8_task_sensitivity():
         return m["coef"][target], ci95(m, target), m["p_value"][target]
 
     SPECS = [
-        ("Fairness cost\ncoef(EE-D), all lists", qd, "ee_disparity_norm",
-         ["avg_ild_jaccard_norm", "is_base", "is_contriever"]),
-        ("Diversity effect\ncoef(ILD), MMR only", qd[qd["rerank_method"] == "mmr"],
+        ("Finding 2: fairness-utility tradeoff\ncoef(EE-D), PL rows only", qd[qd["rerank_method"] == "pl"],
+         "ee_disparity_norm", ["avg_ild_jaccard_norm", "is_base", "is_contriever"]),
+        ("Finding 3: diversity effect\ncoef(ILD), MMR rows only", qd[qd["rerank_method"] == "mmr"],
          "avg_ild_jaccard_norm", ["is_base", "is_contriever"]),
-        ("PL residual vs MMR\ncoef(is_pl), ILD matched", qd[qd["rerank_method"].isin(["pl", "mmr"])],
-         "is_pl", ["avg_ild_jaccard_norm", "is_base", "is_contriever"]),
     ]
     tasks = sorted(qd["lamp_num"].dropna().unique())
 
-    fig, axes = plt.subplots(2, 3, figsize=(7.4, 5.2))
+    fig, axes = plt.subplots(2, 2, figsize=(5.2, 5.2))
     for col_i, (title, df, target, controls) in enumerate(SPECS):
         full_c, full_ci, full_p = fit_with_dummies(df, target, controls)
 
@@ -459,9 +521,10 @@ def fig8_task_sensitivity():
         ax.set_xlabel("LaMP task")
         if col_i == 0:
             ax.set_ylabel("Coefficient, task alone")
-    fig.suptitle("Task-robustness: all three pooled coefficients keep their sign and\n"
-                 "significance under every single-task exclusion (red = significance lost when dropped)",
-                 fontsize=9.5, y=1.0)
+    fig.suptitle("Task-robustness, Findings 2-3: both pooled coefficients keep their\n"
+                 "sign and significance under every single-task exclusion\n"
+                 "(red = significance lost when dropped)",
+                 fontsize=9.5, y=1.02)
     fig.tight_layout()
     save(fig, "fig8_task_sensitivity")
 
