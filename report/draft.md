@@ -331,8 +331,10 @@ deterministic baseline on its own (not the ILD-slope regression above, but
 a direct paired test)? We test **all 7 λ values × 4 cells = 28
 comparisons** (not a pre-selected subset — every MMR setting the project
 ran), Holm-corrected within each cell's 7-test family. **4 of 28 are
-significant, and all 4 are losses**, and the pattern is exactly what the
-diversity-vs-utility story predicts: every one of the 4 significant losses
+significant, and all 4 are losses**, and the pattern is consistent with
+the negative diversity–utility association above (lower λ trades more
+relevance for more diversity, not diversity in isolation): every one of
+the 4 significant losses
 is at the two strongest-diversity settings (λ=0.15 in all four cells is
 negative, three of those four significant; λ=0.3 adds a second significant
 loss in flanT5Small/Contriever), and the delta shrinks toward zero
@@ -341,7 +343,7 @@ delta is exactly 0.0 in every cell, exactly reproducing the earlier sanity
 check. 19 of 28 point negative overall; MMR does not show a significant
 utility *win* over deterministic ranking in any of the 28 settings tested.
 
-## Finding 4 — PL has a residual, diversity-dependent utility disadvantage relative to MMR after adjusting for ILD
+## Finding 4 — PL has a residual utility disadvantage relative to MMR after adjusting for ILD
 
 🔧 *(Renamed from "Fairness's own mechanism carries a cost diversity
 doesn't explain" — that framing claimed more identification than this
@@ -400,6 +402,29 @@ report both because the interaction is itself informative: PL's
 disadvantage isn't a fixed constant, it's specifically worse in the rare
 low-diversity regime and comparatively stable elsewhere.
 
+🔧 **Is the interaction itself robust?** Two checks say: not entirely —
+though the AME built from it is. First, under the strictest identification
+we've used, query×generator×retriever fixed effects, the interaction
+shrinks and loses significance: coef(PL×ILD) = +0.0157 (p = 0.15), about
+half the pooled magnitude and no longer distinguishable from zero. Second,
+leave-one-task-out on the pooled interaction model: the coefficient stays
+positive when 5 of 7 tasks are dropped individually (range +0.023 to
++0.037, p from 0.003 to 0.06), but **flips sign when LaMP-6 is dropped**
+(−0.0280, p = 0.16, itself not significant either way). So we treat the
+diversity-dependence pattern — the interaction term itself — as a
+suggestive, secondary observation rather than an established one; it
+doesn't survive our strictest checks with full confidence. **What does
+survive, robustly, across every specification we've tried** — pooled,
+query fixed effects, query×generator×retriever fixed effects, and all
+seven leave-one-task-out folds — **is the AME itself**: it ranges narrowly
+from −0.0161 to −0.0217 across every leave-one-task-out fold (all
+p < 10⁻¹⁷), and from −0.0192 to −0.0200 across the pooled and
+fixed-effects variants, always highly significant and never close to
+flipping sign. We keep the AME (≈ −0.019 to −0.020) as Finding 4's one
+robust headline number, and treat the diversity-dependence story as an
+interesting but secondary observation rather than a load-bearing part of
+the finding.
+
 🔧 **What this does and doesn't establish.** Adjusting for ILD controls for
 one measured outcome of the ranking, not for everything that differs
 between PL and MMR — PL is stochastic and MMR deterministic, they may
@@ -411,14 +436,14 @@ costs." We originally described this as "isolating fairness's contribution
 beyond diversity"; that overstated what the design identifies, and we've
 corrected the framing.
 
-🔧 **Query fixed effects** (same check as Findings 2–3, isolating
-within-query variation, applied to the additive spec since that's what
-the AME above is grounded in): **coefficient(is_PL) = −0.0200**
-(p = 7.5×10⁻³⁷, n = 144,562, 4,269 clusters) — essentially identical to
-the pooled −0.0194 and the AME. 🔧 The finer (query, generator, ranker)
-fixed effect described under Finding 2 gives the same number again:
-**coefficient(is_PL) = −0.0200** (p = 1.1×10⁻³⁶). This is the most stable
-of the three findings across every specification tested.
+🔧 **Query fixed effects on the additive spec, as a secondary robustness
+check** (same technique as Findings 2–3 — this is not itself the
+fixed-effects validation of the AME above, which is grounded in the
+interaction model and was checked with fixed effects separately, above):
+**coefficient(is_PL) = −0.0200** (p = 7.5×10⁻³⁷, n = 144,562, 4,269
+clusters), and under the finer (query, generator, ranker) fixed effect,
+the same number again: **coefficient(is_PL) = −0.0200** (p = 1.1×10⁻³⁶).
+Both land almost exactly on the AME.
 
 🔧 **Common ILD support.** Does the comparison rely on extrapolating
 outside the diversity range either method actually reaches? No — PL's and
@@ -448,8 +473,13 @@ and EE-R together don't capture, but we have not demonstrated which.
 
 ## Robustness
 
-Every coefficient above was checked leave-one-task-out; none depend on any
-single task remaining in the sample. 🔧 Cluster-robust (by-query) inference
+The headline pooled coefficients for Findings 2 and 3 were checked
+leave-one-task-out; neither's main conclusion depends on any single task
+remaining in the sample (Finding 4's leave-one-task-out check is reported
+separately, below). This does not cover every secondary specification
+above (per-cell regressions, the generator interaction, the EE-R mechanism
+check) — those were not individually re-run leave-one-task-out. 🔧
+Cluster-robust (by-query) inference
 was added to correct for repeated observations of the same query across
 settings — it changes exact significance levels (most notably Finding 3,
 where it moves from p = 5.6×10⁻¹⁰ to p = 0.0115) but does not overturn any
@@ -476,7 +506,7 @@ under both:
 | 3 (coef ILD, MMR rows) | −0.0675 (p=0.0115) | −0.0820 (p=2.4×10⁻⁴) | −0.0785 (p=5.0×10⁻⁴) |
 | 4 (coef is_PL, PL+MMR) | −0.0194 (p=8.8×10⁻³⁴) | −0.0200 (p=7.5×10⁻³⁷) | −0.0200 (p=1.1×10⁻³⁶) |
 
-Finding 2's within-query effect is smaller than the pooled estimate
+Finding 2's within-query association is smaller than the pooled estimate
 (pooled was picking up some between-query variation) but remains large and
 highly significant. Findings 3 and 4 are essentially unchanged, or
 slightly *stronger*, under either within-query specification. The two FE
@@ -503,7 +533,12 @@ depend on between-query composition.
 - **Task dependence.** Findings 2 and 3's pooled effects are LOTO-robust,
   but individual tasks (LaMP-7 for the tradeoff; LaMP-2, LaMP-5 for
   diversity) go the other way on their own — both effects look
-  benchmark-shaped rather than universal.
+  benchmark-shaped rather than universal. Finding 4's AME is similarly
+  LOTO-robust (every fold −0.016 to −0.022, always significant), but the
+  PL×ILD interaction underlying its diversity-dependence framing is not:
+  it flips sign when LaMP-6 is dropped, and loses significance under the
+  strictest fixed-effects specification — treated as secondary for
+  exactly this reason.
 
 ## Bottom line
 
