@@ -8,26 +8,16 @@ keeping alongside the code that produced them. This is a targeted, per-batch
 exception, not a change to the default policy — new runs will keep being ignored
 unless explicitly committed the same way.
 
-## Current status (2026-08-05) — IN PROGRESS, not yet fully complete
+## Current status (2026-08-09) — COMPLETE
 
-The nested one-directory-per-setting structure described below is the
-**target end state**, reached so far for **flanT5Base (all 7 tasks, done)**
-and **flanT5Small LaMP 1 and 2 (done)**. The rest of flanT5Small is mid-run:
-
-| flanT5Small task | status |
-|---|---|
-| 1 | done (51/51 - dataset only has 51 queries total, already exhausted) |
-| 2 | done (192/192), merged |
-| 3 | in progress locally, not yet committed - 3/12 bm25 settings done (211/211 each), 1 partial (60/211) |
-| 4 | in progress locally, not yet committed - 11/12 bm25 settings done (733/733 each), 1 partial (35/733) |
-| 5, 6, 7 | not started |
-
-Run order for the remaining tasks is **4 → 3 → 7 → 5 → 6** (changed mid-run
-from the original 2-7 sequential order). LaMP3/LaMP4's partial progress is
-sitting on local disk only (uncommitted, gitignored) - safe to resume, not
-lost, but not yet reflected in `INDEX.md` or on GitHub. See the relaunch
-command and full resume plan in project memory / commit history around
-2026-08-05 for exact next steps.
+Both generators (flanT5Base and flanT5Small) are at full query coverage
+across all 7 LaMP tasks and both rankers: **336 directories total** (168 per
+generator, 12 rerank settings × 7 tasks × 2 rankers each). Verified with a
+complete audit before the final commit: every directory's row count, unique
+qid count, and manifest counters agree with that task's true total query
+count; zero `pl_samples` mismatches across all 112 PL cells; every leaf
+directory holds exactly 12 run dirs. This is the full dataset the eventual
+report will draw on.
 
 **Browsing tip:** open **[`INDEX.md`](INDEX.md)** for a single sortable/searchable
 table (one row per run, auto-generated from every `manifest.json` by
