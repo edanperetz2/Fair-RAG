@@ -1,0 +1,12 @@
+{
+  "n_queries": 760,
+  "metric_name": "rouge-l",
+  "expected_utility": 0.19088135477259133,
+  "max_utility": 0.29024258629609123,
+  "min_utility": 0.11135812251218044,
+  "avg_ild_jaccard": 0.6714530005618952,
+  "avg_jaccard_mean": 0.3285469994381047,
+  "ee_disparity": 0.614778947368422,
+  "ee_relevance": 0.444837119736842,
+  "ee_difference": 0.5307991973684212
+}
