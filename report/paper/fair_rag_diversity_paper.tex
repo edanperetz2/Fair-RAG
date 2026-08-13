@@ -1,0 +1,583 @@
+\documentclass[10pt,twocolumn]{article}
+
+\usepackage[margin=0.78in,columnsep=0.28in]{geometry}
+\usepackage{times}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage[T1]{fontenc}
+\usepackage{titlesec}
+\usepackage{caption}
+\usepackage{authblk}
+\usepackage{enumitem}
+
+\renewcommand{\dbltopfraction}{0.95}
+\renewcommand{\dblfloatpagefraction}{0.8}
+\setcounter{dbltopnumber}{3}
+\titlespacing*{\section}{0pt}{8pt}{4pt}
+\titlespacing*{\subsection}{0pt}{6pt}{3pt}
+\captionsetup{font=small,labelfont=bf}
+
+\title{\vspace{-1.2em}Does Fairness Improve RAG Performance, or Is It Diversity?\\
+\large A Critical Reproduction and Extension of \emph{Towards Fair RAG}\vspace{-0.3em}}
+
+\author[1]{Idan Peretz}
+\author[1]{Avi Simkin}
+\affil[1]{\normalsize \{308560150, 312485816\}}
+\date{}
+
+\begin{document}
+\maketitle
+\vspace{-2.2em}
+
+\begin{abstract}
+\noindent
+Fairness-aware stochastic rerankers are usually expected to trade ranking quality for
+more equitable item exposure, yet Eun Kim and Diaz (2025) report that RAG systems
+built on such rerankers can maintain, and sometimes exceed, the generation utility of
+deterministic ranking. We reproduce this setup on the LaMP benchmark and investigate
+the mechanism behind it, using Maximal Marginal Relevance (MMR) -- a deterministic
+diversity-relevance re-ranker -- alongside Plackett-Luce (PL) sampling so that
+diversification can be studied separately from the randomness of stochastic ranking
+itself. We find a real but narrow and asymmetric effect: in the least-diversified
+quintile of each method's own output, MMR's utility significantly exceeds the
+deterministic baseline in 4 of 7 LaMP tasks, while PL's blind randomization does so in
+only 1 of 7 -- evidence that where diversification helps, it is mostly MMR's
+relevance-aware selection doing the work, not randomization itself. We nonetheless
+propose a hybrid reranking method, RandMMR -- PL sampling of the top-ranked item
+followed by a randomized MMR pass over the remaining ranks -- that drives Expected
+Exposure Disparity far below both the deterministic baseline and any plain-PL setting
+reaching a comparable disparity level, while matching or exceeding plain PL's utility
+in 17 of 24 tested (task, generator, retriever) cells. We also offer a critical
+reading of both the original paper's evaluation protocol -- most notably its reliance
+on a stochastic oracle for utility normalization that is expensive to reproduce
+faithfully -- and of the LaMP benchmark itself as ground truth for this kind of study:
+its relevance labels come from a single generator's utility delta rather than fixed
+human judgment, its candidate pools are small with an unusually high useful-document
+ratio next to classical retrieval collections, our generators are far smaller than
+typical production RAG systems, and we find direct evidence that PL's
+fairness/ranking-quality trade-off is not a per-query guarantee -- individual queries'
+relevance-weighted exposure exceeds the deterministic ranking's roughly a third of the
+time even though the trade-off holds on average. We lay out concrete directions for
+future work.
+\end{abstract}
+
+\vspace{0.3em}
+
+\section{Introduction and Problem Formulation}
+\label{sec:intro}
+
+Fair-ranking research typically formalizes an unavoidable trade-off: enforcing more
+equitable exposure among relevant items costs some ranking quality relative to a
+purely relevance-ordered list \cite{castillo2018fairness,diaz2020evaluating}.
+Eun Kim and Diaz \cite{eunkim2025fairrag} extend this literature to
+retrieval-augmented generation (RAG), reporting that RAG systems using a stochastic,
+fairness-aware retriever policy can maintain, and in some regimes even exceed, the
+generation utility of a fully deterministic retriever, despite that trade-off. This
+motivates three questions, the first two stated in our original project proposal:
+
+\begin{itemize}[leftmargin=1.1em]
+  \item \textbf{RQ1 (Reproduction).} Does the original paper's fairness-utility
+  relationship hold under an independent re-implementation, and are there
+  unmentioned limitations or sensitivities in how it is measured?
+  \item \textbf{RQ2 (Mechanism).} If fairness interventions do not cost utility, is
+  this because they increase the \emph{diversity} of retrieved items --- intuitively,
+  a generator given a less redundant document set has more distinct evidence to draw
+  on?
+  \item \textbf{RQ3 (Improvement).} Given whatever RQ1--RQ2 reveal about \emph{why}
+  fairness interventions do not cost utility, can that insight be used to design a
+  reranking policy that pushes fairness (lower EE-D) further than the settings we
+  study reach on their own, without giving utility back up in exchange?
+\end{itemize}
+
+Formally, following \cite{eunkim2025fairrag}, a RAG system is a tuple
+$\langle R, G, k \rangle$ of a retriever $R$, generator $G$, and truncation depth
+$k$. A deterministic $R$ returns one ranked list per query; a stochastic policy $S$
+instead samples a ranking $\pi \sim S(\cdot \mid q)$, and system quality is reported
+in expectation over $N$ sampled rankings: Expected Exposure Disparity/Relevance
+(EE-D/EE-R, item-side ranking fairness and quality) and Expected Utility (EU,
+downstream generation quality), each normalized to a theoretical or empirical bound
+per query \cite{diaz2020evaluating,eunkim2025fairrag}. We add one further quantity
+not defined in the source paper: \emph{intra-list diversity}
+$\mathrm{ILD}(\pi) = 1 - \overline{\mathrm{Jaccard}}(\pi)$, the mean pairwise
+token-set dissimilarity of the $k$ retrieved items, following the standard
+similarity-vs-diversity framing of \cite{smyth2001similarity}. RQ2 asks whether EU is
+better predicted by ILD than by the fairness dial itself.
+
+\section{Related Work}
+\label{sec:related}
+
+\textbf{Fair and stochastic ranking.} Fairness in ranking is not simply fairness in
+classification applied item-by-item: a ranked list's effect on an item is mediated by
+\emph{exposure}, computed via the position-weighted formula defined by Diaz et al.\
+\cite{diaz2020evaluating} rather than by an item's bare relevance. Item-side exposure
+fairness is formalized via the Expected Exposure framework \cite{diaz2020evaluating}, which
+measures a policy's exposure allocation against a fair target using a stochastic
+ranking sampled by the Plackett-Luce (PL) model
+\cite{plackett1975analysis,luce1959individual}; the temperature parameter $\alpha$
+that we sweep here controls how close PL sampling is to the deterministic base
+ranking. Castillo \cite{castillo2018fairness} surveys the fairness-transparency
+trade-off in rankings that motivates this line of work. \emph{Towards Fair RAG}
+\cite{eunkim2025fairrag} is the paper under reproduction: it applies this fairness
+framework to RAG, measuring EE-D/EE-R/EU across LaMP tasks and several
+retriever-generator pairs, and is the direct source of our experimental design,
+metrics, and normalization convention (Appendix C of \cite{eunkim2025fairrag}). Its
+utility metric, EU, is computed per sampled ranking as the downstream generator's
+task-appropriate score (accuracy, MAE, or ROUGE-L, depending on the LaMP task) when
+conditioned on that ranking's retrieved items, then normalized per query against an
+oracle-ranking upper bound before being averaged across $N$ sampled rankings.
+
+\textbf{Diversity in retrieval.} Maximal Marginal Relevance (MMR)
+\cite{carbonell1998use} is the classic deterministic diversity-relevance trade-off
+re-ranker, greedily selecting each next item to maximize $\lambda \cdot
+\mathrm{relevance} - (1-\lambda)\cdot\max\text{-similarity-to-selected}$; we use it
+as a second, non-stochastic diversification arm alongside PL. Intra-list diversity
+via pairwise dissimilarity follows \cite{smyth2001similarity}.
+
+\textbf{Personalization benchmark and models.} We use LaMP
+\cite{salemi2023lamp} as our dataset (Section~\ref{sec:data}) and Flan-T5
+\cite{chung2024scaling} as our generator family, matching \cite{eunkim2025fairrag}.
+
+\section{Dataset}
+\label{sec:data}
+
+We use LaMP \cite{salemi2023lamp}, the same benchmark as \cite{eunkim2025fairrag},
+for two reasons. First, and primarily, paper-faithfulness: LaMP is the only dataset
+for which the original paper published per-task, per-generator utility-labeled
+corpora (filtered to items with a measurable generator-specific utility delta), so
+reproducing on it is the only way to compare our numbers directly against theirs
+rather than against a different task distribution. Second, tractability: LaMP's
+candidate pools are small enough that deriving actual relevance labels is
+computationally feasible in the first place (Section~\ref{sec:threats}), which gives
+us, for the same queries, both a retrieval-fairness signal (which documents are
+labeled useful) and a generation-correctness signal --- a joint
+retrieval-\emph{and}-generation labeling that,
+to our knowledge, is not available together in other RAG-evaluation datasets, and is
+exactly what studying fairness in RAG needs. LaMP additionally spans seven
+personalization tasks with heterogeneous metrics (accuracy, MAE, ROUGE-L), letting us
+check whether any finding is task-specific or general.
+
+We verified our local corpus against the original paper's own published statistics
+(Appendix D, Tables 4--5): per-task query count, average candidate-document count,
+average useful-document count, and average useful-document percentage all match
+to the paper's reported precision across all 7 tasks $\times$ 2 generators (28
+cells), confirming our filtered dataset is the identical one used upstream, not a
+re-derived approximation.
+
+We run two generators (Flan-T5-Small, Flan-T5-Base \cite{chung2024scaling}) and two
+retrievers (BM25, Contriever), against the paper's larger grid (adding SPLADE and
+two larger generators) --- a scope reduction driven by available compute, not
+methodology. Reranking settings are deterministic, a gold/oracle ranker, PL at
+$\alpha \in \{1,2,4,8\}$, and MMR at $\lambda \in \{0.15,0.3,0.45,0.55,0.7,0.85\}$,
+all truncated to $k=5$, matching \cite{eunkim2025fairrag}'s reported $k$.
+
+\subsection{Limitations of the LaMP Ground Truth}
+\label{sec:threats}
+
+\begin{table*}[t]
+\centering
+\scriptsize
+\caption{LaMP candidate-pool size and useful-document rate, per task and generator (from each task's relevance-mapping file).}
+\label{tab:corpus}
+\begin{tabular}{@{}lrrrrrrrrrrrrrr@{}}
+\toprule
+& \multicolumn{2}{c}{LaMP-1} & \multicolumn{2}{c}{LaMP-2} & \multicolumn{2}{c}{LaMP-3} & \multicolumn{2}{c}{LaMP-4} & \multicolumn{2}{c}{LaMP-5} & \multicolumn{2}{c}{LaMP-6} & \multicolumn{2}{c}{LaMP-7} \\
+Generator & cand. & \%use & cand. & \%use & cand. & \%use & cand. & \%use & cand. & \%use & cand. & \%use & cand. & \%use \\
+\midrule
+Flan-T5-Small & 123.5 & 9.5 & 52.8 & 22.5 & 189.8 & 34.3 & 192.2 & 27.1 & 106.1 & 24.8 & 86.0 & 35.9 & 19.4 & 45.5 \\
+Flan-T5-Base  & 102.9 & 22.5 & 45.6 & 29.9 & 185.3 & 41.2 & 187.0 & 31.6 & 105.6 & 25.7 & 86.2 & 38.7 & 21.7 & 33.0 \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+These reasons for choosing LaMP come with limitations worth stating up front, shared
+with the source paper and not introduced by our reproduction, since they bound how
+far any effect we measure in the results that follow (Section~\ref{sec:results}),
+including RQ1's reproduction and RQ2's diversity test, should generalize.
+
+\textbf{Relevance is a per-generator utility delta, not a fixed judgment.} Unlike
+TREC-style collections, where a document's relevance is a human assessor's judgment
+fixed once and shared by every system evaluated against it, a LaMP candidate document
+is labeled relevant iff conditioning generation on it, versus a zero-context
+baseline, \emph{improves that specific generator's} task metric
+($\delta = \text{augment\_score} - \text{baseline\_score}$; label $=1$ if
+$\delta{>}0$, else $0$). Ground truth is therefore generator-specific, single-sample (no
+repeated-trial averaging over the scoring judgment itself), and not portable across
+models: the same document can be ``relevant'' for one generator and ``irrelevant''
+for another on the identical query, which is exactly what we observe (Table
+\ref{tab:corpus}) --- e.g.\ LaMP-1's useful-document rate is 9.5\% under Flan-T5-Small
+but 22.5\% under Flan-T5-Base, a 2.4$\times$ difference on the same queries and
+candidates. Any fairness-ranking result computed against these labels inherits this:
+it is a statement about ranking relative to \emph{one model's} learned notion of
+usefulness, not a model-agnostic ground truth.
+
+\textbf{The corpus is small, with an unusually high useful-document rate.} Table
+\ref{tab:corpus} gives per-task, per-generator candidate-pool and useful-document
+statistics. Candidate pools range 19--192 documents/query (mean $\sim$110); the
+useful-document rate ranges 9.5\%--45.5\% (mean $\sim$29\%). Classical TREC ad hoc
+collections typically retrieve from candidate pools several orders of magnitude
+larger, with relevance rates well under 1\%. A ranking-fairness metric's behavior at
+$k{=}5$ depends heavily on how much of the candidate pool is actually useful: with a
+30\% useful rate and $k{=}5$, a policy that samples uniformly at random from the top
+of the pool already has decent odds of surfacing several useful documents, which
+compresses the deterministic-vs-stochastic utility gap the whole fairness/utility
+trade-off is measured against, relative to a $<$1\%-relevance TREC-scale setting.
+
+\textbf{Our generators are far smaller than deployed RAG systems.} Flan-T5-Small
+(77M) and Flan-T5-Base (250M) \cite{chung2024scaling} are two to three orders of
+magnitude smaller than generators typically used in production RAG systems
+($\geq$3B parameters, e.g.\ Llama-3-8B- or GPT-4o-mini-class models), which are also
+frequently instruction- or task-finetuned beyond LaMP's own prompt format. Whether
+the fairness/utility relationships we measure --- e.g.\ RQ2's diversity effect ---
+persist at production model scale is untested here (see Future Work).
+
+\textbf{The EE-D/EE-R trade-off is not a per-query guarantee.} PL sampling is
+expected, in aggregate, to trade ranking quality (EE-R) for exposure fairness (lower
+EE-D); at the per-query level we find this is frequently violated. Across all
+completed PL conditions ($\alpha \in \{1,2,4,8\}$, both generators, both retrievers,
+LaMP-1--7), an individual query's PL EE-R exceeds its own deterministic EE-R in
+29.7\% of query-level observations overall --- 37--38\% at $\alpha \in \{1,2,4\}$ and
+8.3\% even at the mildest, near-deterministic $\alpha{=}8$. This mostly washes out in
+expectation: pooling to a macro (task, generator, ranker, $\alpha$) mean, only 14 of
+112 conditions (12.5\%) have PL's mean EE-R exceed deterministic's, and even those are
+small ($\Delta \leq 0.004$) and exclusively at $\alpha{=}8$. We read this as evidence
+that the trade-off is real on average but not mechanically guaranteed on a corpus this
+small and this skewed toward useful documents --- a caution against over-interpreting
+any single query's or single run's fairness/quality numbers.
+
+\section{Methodology Notes}
+\label{sec:method}
+
+We treat the original paper's open-sourced code as a direct reference throughout:
+matching its library versions, reusing its utility-labeling technique
+(Section~\ref{sec:threats}) and implementation details (prompt templates, scoring
+functions) wherever our framework's structure allowed it directly, and otherwise
+re-implementing to match its stated method as closely as we could. We report
+divergences from the paper's own numbers (Section~\ref{sec:results}) as limitations
+of exact reproduction under a reduced compute grid, not as bugs in either codebase,
+since an extensive audit (prompt/scoring-function parity, generation parity against
+the paper's own pipeline, model-version and seed invariance checks) found no
+implementation-level explanation for them.
+
+For the diversity-mediation test (RQ2), for each LaMP task we bin PL's and MMR's own
+generated lists \emph{separately} into ILD$_{\text{norm}}$ quintiles and compare the
+least-diversified quintile's (Q1) mean EU$_{\text{norm}}$ against the deterministic
+baseline's, via a two-sided Welch's $t$-test, task-stratified with equal weight across
+all four generator$\times$retriever cells. One MMR setting, $\lambda{=}1.0$, is
+excluded: at $\lambda{=}1$ MMR's diversity term has zero weight, so its greedy
+selection provably (and empirically, 100/100 on a real sample) reproduces the
+deterministic ranking exactly --- it is not a diversification condition at all. A
+second precision control matters at this scale: some (generator, ranker, $\alpha$)
+conditions have been resampled more times ($N{\in}\{20,30\}$) than others ($N{=}10$),
+and pooling each condition at its own maximum $N$ independently would silently give
+some conditions tighter per-query utility estimates than the ones they are compared
+against. Every PL-derived number in Section~\ref{sec:results} instead pools all
+conditions inside one task at a single $N$ shared by every (generator, ranker,
+$\alpha$) triple for that task --- the highest such $N$, or $N{=}10$ where no higher
+value is universal.
+
+\section{Results}
+\label{sec:results}
+
+\subsection{RQ1: Reproduction fidelity}
+
+Our reproduction of the paper's Figure 4 (EE-D$\leftrightarrow$EE-R$\leftrightarrow$EU
+relationships) and Table 2 (disparity-interval utility deltas) recovers the same
+qualitative trends the paper reports, once curve construction is matched exactly to
+its stated method (binning every individual sampled list into disparity intervals
+rather than averaging per $\alpha$-condition first, confirmed by pixel-level
+inspection of the published figure): a fairness/ranking-quality trade-off that rises
+then plateaus, a clean positive ranking-quality/utility relationship, and a similar
+disparity-interval utility pattern to the paper's own Table 2. Absolute utility scale
+is not directly comparable, since the paper's ceiling is a genuine stochastic oracle
+(multiple sampled optimal permutations) while ours is a single deterministic oracle
+draw (Future Work).
+
+Table~\ref{tab:baseline} compares our reproduced deterministic-baseline EU against the
+two tasks for which the paper publishes baseline values directly. Flan-T5-Base is
+within 4\% on both. Flan-T5-Small reproduces 22--30\% \emph{below} the paper on
+LaMP-1 --- traced to a genuine, content-invariant model failure mode (it predicts the
+same class label regardless of retrieved context on this task) --- and 38--42\%
+\emph{above} on LaMP-4, consistent with our single-draw normalization ceiling being
+systematically looser than the paper's true stochastic oracle. We treat both as
+reproduction-fidelity limitations under a reduced compute grid, not as errors in
+either codebase.
+
+\begin{table}[t]
+\centering
+\small
+\caption{Deterministic-baseline EU: paper vs.\ our reproduction.}
+\label{tab:baseline}
+\begin{tabular}{@{}llrrr@{}}
+\toprule
+Task & Model & Paper & Ours & $\Delta$\% \\
+\midrule
+LaMP-1 & BM25+Small       & 0.308 & 0.240 & $-$22\% \\
+LaMP-1 & Contr.+Small     & 0.286 & 0.200 & $-$30\% \\
+LaMP-1 & BM25+Base        & 0.670 & 0.695 & $+$4\% \\
+LaMP-1 & Contr.+Base      & 0.637 & 0.641 & $+$1\% \\
+LaMP-4 & BM25+Small       & 0.217 & 0.299 & $+$38\% \\
+LaMP-4 & Contr.+Small     & 0.254 & 0.360 & $+$42\% \\
+LaMP-4 & BM25+Base        & 0.223 & 0.304 & $+$36\% \\
+LaMP-4 & Contr.+Base      & 0.268 & 0.361 & $+$35\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{RQ2: Diversity as the mediating mechanism}
+\label{sec:rq2}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{fig_diversity_lamp4_panel.png}
+\caption{ILD-Jaccard diversity by rerank setting, LaMP-4 (representative; all seven
+tasks show the same qualitative pattern, largest swing on LaMP-6 and smallest on
+LaMP-7). Diamond = mean, orange line = median.}
+\label{fig:diversity}
+\end{figure}
+
+Figure~\ref{fig:diversity} shows LaMP-4 as a representative example: PL and MMR both
+raise list diversity as their dial is relaxed ($\alpha{:}8{\to}1$,
+$\lambda{:}0.85{\to}0.15$). The other six tasks show the same qualitative pattern, but
+the swing's size is task-dependent --- largest for LaMP-6 (mean ILD $0.64 \to 0.87$)
+and smallest for LaMP-7 (everything within $0.92$--$0.96$), consistent with LaMP-7
+having very few candidate documents per query ($\sim$20, Table~\ref{tab:corpus}) and
+thus little room to diversify.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{fig_ild_sweetspot.pdf}
+\caption{Mean EU$_{\text{norm}}$ by ILD$_{\text{norm}}$ quintile (Q1 = least
+diversified), PL vs.\ MMR, task-stratified across all 7 tasks and 4
+generator$\times$retriever cells, vs.\ the deterministic mean (dashed).}
+\label{fig:ild-sweetspot}
+\end{figure}
+
+The key test is whether this diversity increase predicts \emph{higher} utility.
+Figure~\ref{fig:ild-sweetspot} bins PL's and MMR's own lists separately into
+ILD$_{\text{norm}}$ quintiles and plots mean EU$_{\text{norm}}$ against the
+deterministic mean as reference. Both methods peak at Q1 --- not an extreme corner of
+the absolute diversity range, since even ``least diversified'' PL/MMR output is
+usually still measurably more diverse than a bare top-$k$ list, given how small LaMP's
+candidate pools are (Section~\ref{sec:threats}) --- but the effect is asymmetric:
+MMR's Q1 mean (0.528) clears the deterministic reference (0.507) with room to spare,
+while PL's Q1 mean (0.507) is essentially flush with it.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{fig_mmr_vs_pl_q1.pdf}
+\caption{$\Delta$EU$_{\text{norm}}$ vs.\ deterministic at the Q1 (least-diversified)
+bin, PL vs.\ MMR, per task. $^*p{<}0.05$, $^{**}p{<}0.01$.}
+\label{fig:mmr-vs-pl-q1}
+\end{figure}
+
+Figure~\ref{fig:mmr-vs-pl-q1} breaks this down per task: MMR's Q1 delta vs.\
+deterministic is positive in 5 of 7 tasks and significant in 4 (LaMP-1, LaMP-3,
+LaMP-4, LaMP-6; all $p{<}0.01$), with the remaining two negligible rather than
+meaningfully negative (LaMP-5: $-0.004$; LaMP-7: $\approx 0$). PL's Q1 delta is
+positive in only 3 of 7 tasks and significant in just one (LaMP-3, $p{<}0.001$).
+Where diversification helps at all, in other words, it is mostly MMR doing the work:
+its relevance-aware selection retains more of what already made the original ranking
+good, while PL's blind randomization mostly just adds noise.
+
+This is a real but narrow finding, not a broad confirmation of the
+diversity-mediation hypothesis in our original proposal: the benefit is concentrated
+in a specific diversity range (mild, not maximal), is far stronger for MMR than PL,
+and even for MMR is significant in barely more than half the tasks we test. It does
+support a more specific claim: mild, relevance-aware diversification (MMR) is a real,
+if task-dependent, source of utility gain over deterministic ranking, while PL's
+fairness-motivated randomization, on its own, mostly is not.
+
+\subsection{RQ3: RandMMR, a hybrid PL + randomized-MMR reranker}
+\label{sec:rq3}
+
+Motivated by RQ1--RQ2 --- fairness interventions do not reliably cost utility, and
+mild MMR-style diversification is a real (if partial) reason why --- we propose
+\textbf{RandMMR}: PL sampling of the top-ranked item, then a randomized-MMR pass
+($\lambda \sim \mathrm{Unif}(\ell_{lo},\ell_{hi})$) over the remaining ranks. We
+evaluate the RandMMR condition run across the most tasks and cells ($\alpha{=}4$,
+$\lambda\sim\mathrm{Unif}(0.8,1.0)$, $N{=}20$: LaMP-$\{1,2,3,4,5,7\}$ $\times$ 4
+generator/retriever cells, 24 completed conditions) against plain PL, choosing per
+cell the PL $\alpha \in \{1,2,4,8\}$ whose own mean EE-D is closest to RandMMR's ---
+biased toward an $\alpha$ with the same or slightly \emph{higher} disparity than
+RandMMR's own, so PL never gets an unearned fairness advantage in the comparison ---
+unless the single closest $\alpha$ is already within 0.02 EE-D, in which case that one
+is used regardless of direction.
+
+\begin{table*}[t]
+\centering
+\small
+\caption{RandMMR ($\alpha{=}4$, $\lambda\sim U(0.8,1.0)$) vs.\ matched plain PL, LaMP-1 and LaMP-4 (macro means). PL $\alpha$ chosen per cell (see text). $^*p{<}0.05$.}
+\label{tab:hybrid}
+\begin{tabular}{@{}llrrrrrr@{}}
+\toprule
+Task & Cell & PL $\alpha$ & Det.\ EE-D & PL EE-D/EU & RandMMR EE-D/EU & $\Delta$EU & Sig. \\
+\midrule
+LaMP-1 & Base/BM25    & 1 & 1.00 & 0.16/0.46 & 0.14/0.49 & $+$0.029 & \\
+LaMP-1 & Base/Contr.  & 1 & 1.00 & 0.16/0.47 & 0.13/0.49 & $+$0.027 & \\
+LaMP-1 & Small/BM25   & 2 & 1.00 & 0.11/0.11 & 0.12/0.11 & $+$0.000 & \\
+LaMP-1 & Small/Contr. & 1 & 1.00 & 0.15/0.10 & 0.12/0.13 & $+$0.029 & \\
+LaMP-4 & Base/BM25    & 1 & 1.00 & 0.21/0.23 & 0.19/0.23 & $+$0.008 & \\
+LaMP-4 & Base/Contr.  & 1 & 1.00 & 0.21/0.23 & 0.18/0.24 & $+$0.013 & \\
+LaMP-4 & Small/BM25   & 2 & 1.00 & 0.20/0.18 & 0.20/0.23 & $+$0.045 & * \\
+LaMP-4 & Small/Contr. & 1 & 1.00 & 0.21/0.22 & 0.19/0.23 & $+$0.009 & \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+Table~\ref{tab:hybrid} details the two tasks with a published baseline; the chosen
+$\alpha$ varies by cell (its own column, since it is not the same across
+generator/retriever pairs), and RandMMR's normalized EU exceeds the matched PL's in 7
+of these 8 cells, significantly in one (Flan-T5-Small/BM25, LaMP-4, $p{<}0.001$).
+Across the remaining 16 cells (LaMP-2, 3, 5, 7), it does so in 10 of 16 --- 17 of 24
+completed cells overall (71\%), with no cell showing a significant PL advantage.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{fig_randmmr_vs_pl.pdf}
+\caption{RandMMR across its own $\alpha \in \{4,8,20\}$ settings (diamonds, ascending
+EE-D) vs.\ the full plain-PL $\alpha$ sweep, LaMP-1.}
+\label{fig:hybrid}
+\end{figure}
+
+Because $\alpha{=}4$ is a single point on RandMMR's own dial, Figure~\ref{fig:hybrid}
+instead uses every completed RandMMR $\alpha$ ($4$, $8$, $20$) for LaMP-1 to show the
+fuller EE-D/EU trade-off it can reach: at all four cells, the RandMMR curve sits at or
+above the plain-PL sweep across the same EE-D range, and reaches EE-D as low as
+0.11--0.14 (Flan-T5-Small cells) --- well below any workable plain-PL setting except
+$\alpha{=}1$, which the RandMMR curve matches or beats in utility throughout.
+
+We read this as encouraging, not conclusive: 24 completed cells is not the full
+7-task$\times$4-cell grid, only one RandMMR configuration is complete enough for a
+cross-task tally, and only one cell reaches significance individually. But the
+direction is consistent (17 of 24, no significant losses) and matches the LaMP-1
+multi-$\alpha$ picture in Figure~\ref{fig:hybrid}: RandMMR is, at minimum, not costing
+utility relative to comparably-fair plain PL, and appears to more often help than not.
+
+\section{Conclusions}
+\label{sec:conclusion}
+
+\textbf{RQ1.} The qualitative shape of the paper's central relationships (fairness
+vs.\ ranking quality; ranking quality vs.\ utility) reproduces once curve
+construction is matched exactly to the paper's method. Absolute utility numbers,
+however, diverge meaningfully despite an extensive fidelity audit finding no
+implementation, data, model-version, or seed-related explanation --- a
+$\sim$25\% shortfall specific to LaMP-1/Flan-T5-Small, traced to a genuine,
+content-invariant model failure mode, and a uniform $\sim$35--42\% excess across
+\emph{all four} LaMP-4 cells, most plausibly a looser empirical-max normalization
+ceiling on our side (a single deterministic oracle draw vs.\ the paper's true
+stochastic multi-sample oracle) rather than a per-model artifact. We report both as
+limitations of exact reproduction under a reduced retriever/generator grid rather
+than as errors in either codebase.
+
+\textbf{RQ2.} We find a narrow, asymmetric form of support for the
+diversity-mediation hypothesis in our proposal, not the broad, uniform version it was
+originally framed as. Across 177{,}718 individual query-level PL/MMR observations
+(Section~\ref{sec:rq2}), MMR's least-diversified quintile significantly exceeds
+deterministic utility in 4 of 7 tasks; PL's does so in only 1. Diversification helps
+where it helps mostly through MMR's relevance-aware selection, mildly applied, not
+through PL's fairness-motivated randomization on its own, and even then only in about
+half the tasks we test.
+
+\textbf{RQ3.} We proposed RandMMR, a hybrid policy motivated by RQ1--RQ2: PL sampling
+of the top-ranked item, then a randomized-MMR pass over the remaining ranks.
+Evaluated against plain PL at a matched (or conservatively, slightly worse) fairness
+level across 24 completed cells spanning six LaMP tasks (Section~\ref{sec:rq3}),
+RandMMR's normalized EU exceeds the matched PL's in 17 of 24 cells (71\%),
+significantly in one, with no cell showing a significant PL advantage; a richer
+LaMP-1 view across RandMMR's own $\alpha$ sweep shows it reaching EE-D well below any
+workable plain-PL setting except $\alpha{=}1$, which it matches or beats in utility
+throughout. We read this as encouraging rather than conclusive --- the direction is
+consistent and the fairness gain is large, but the grid is not yet complete and only
+one cell reaches significance individually.
+
+\section{Future Work}
+\label{sec:future}
+
+\begin{enumerate}[leftmargin=1.1em,itemsep=1pt]
+  \item Explore other hybrid reranking policies beyond RandMMR's specific
+  PL-rank-1-then-randomized-MMR-tail design (e.g., varying which ranks get which
+  treatment, or blending in an explicit relevance floor).
+  \item Explore other diversity/fairness reranking methods entirely, e.g.\
+  xQuAD-style explicit sub-topic coverage, as a further point of comparison to MMR
+  and PL.
+  \item Run with larger sample counts, especially for the under-powered
+  Flan-T5-Small RandMMR cells and the tasks outside our 24-cell grid
+  (Section~\ref{sec:rq3}).
+  \item Acquire or construct a more stable dataset/ground-truth for fairness-in-RAG
+  evaluation, less dependent on a single generator's utility delta for relevance
+  (Section~\ref{sec:threats}).
+  \item Repeat with stronger, newer generators actually used in production RAG
+  systems ($\geq$3B parameters, often task-finetuned) and with SPLADE as a third
+  retriever, to test whether our findings are small-model/small-grid artifacts.
+  \item A properly stochastic oracle retriever (multiple sampled optimal
+  permutations, as specified in the paper's Appendix C.3, vs.\ our single
+  deterministic draw) would tighten the utility-normalization ceiling behind
+  Table~\ref{tab:baseline}.
+  \item A causal mediation analysis (e.g., instrumenting diversity directly rather
+  than reading it off realized lists) would be a stronger test of RQ2 than the
+  quintile-comparison design used here, which remains correlational.
+  \item The paper's Figure 5 (NLI-based attribution fairness) requires an entailment
+  pipeline we did not build and is a natural extension once RQ1's open discrepancies
+  are resolved.
+  \item Tackle optimization of diversity/fairness toggles (PL $\alpha$, MMR
+  $\lambda$) customized per dataset, task, or specific information need, rather than
+  one fixed setting swept globally --- directly motivated by RQ2's finding that the
+  effect is task-specific.
+\end{enumerate}
+
+{\small
+\begin{thebibliography}{99}
+
+\bibitem{eunkim2025fairrag}
+T.\ Eun Kim and F.\ Diaz.
+\newblock Towards Fair RAG: On the Impact of Fair Ranking in Retrieval-Augmented
+Generation.
+\newblock \emph{ICTIR}, 2025. arXiv:2409.11598.
+
+\bibitem{castillo2018fairness}
+C.\ Castillo.
+\newblock Fairness and Transparency in Ranking.
+\newblock \emph{ACM SIGIR Forum}, 52(2), 2018.
+
+\bibitem{diaz2020evaluating}
+F.\ Diaz, B.\ Mitra, M.\ D.\ Ekstrand, A.\ J.\ Biega, and B.\ Carterette.
+\newblock Evaluating Stochastic Rankings with Expected Exposure.
+\newblock \emph{CIKM}, 2020.
+
+\bibitem{salemi2023lamp}
+A.\ Salemi, S.\ Mysore, M.\ Bendersky, and H.\ Zamani.
+\newblock LaMP: When Large Language Models Meet Personalization.
+\newblock arXiv:2304.11406, 2023.
+
+\bibitem{chung2024scaling}
+H.\ W.\ Chung et al.
+\newblock Scaling Instruction-Finetuned Language Models.
+\newblock \emph{JMLR}, 25, 2024.
+
+\bibitem{carbonell1998use}
+J.\ Carbonell and J.\ Goldstein.
+\newblock The Use of MMR, Diversity-Based Reranking for Reordering Documents and
+Producing Summaries.
+\newblock \emph{SIGIR}, 1998.
+
+\bibitem{smyth2001similarity}
+B.\ Smyth and P.\ McClave.
+\newblock Similarity vs.\ Diversity.
+\newblock \emph{ICCBR}, 2001.
+
+\bibitem{plackett1975analysis}
+R.\ L.\ Plackett.
+\newblock The Analysis of Permutations.
+\newblock \emph{Journal of the Royal Statistical Society: Series C}, 24(2), 1975.
+
+\bibitem{luce1959individual}
+R.\ D.\ Luce.
+\newblock \emph{Individual Choice Behavior: A Theoretical Analysis}.
+\newblock Wiley, 1959.
+
+\end{thebibliography}
+}
+
+\end{document}

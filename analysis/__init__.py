@@ -13,10 +13,17 @@ from analysis.loading import (
     find_completed_run_dirs,
     existing_setting_ids,
     select_best_precision,
+    select_consistent_precision,
+    select_full_coverage_runs,
     load_relevance_mapping,
     load_retrieval_scores,
 )
 from analysis.plotting import plot_metric_scatter_panels, format_macro_table_for_display
+from analysis.rank_similarity import (
+    kendall_tau_from_det_indices,
+    rbo_from_det_indices,
+    add_rank_similarity,
+)
 from analysis.stats import (
     weighted_mean,
     bootstrap_ci,
@@ -37,10 +44,15 @@ __all__ = [
     "find_completed_run_dirs",
     "existing_setting_ids",
     "select_best_precision",
+    "select_consistent_precision",
+    "select_full_coverage_runs",
     "load_relevance_mapping",
     "load_retrieval_scores",
     "plot_metric_scatter_panels",
     "format_macro_table_for_display",
+    "kendall_tau_from_det_indices",
+    "rbo_from_det_indices",
+    "add_rank_similarity",
     "weighted_mean",
     "bootstrap_ci",
     "assign_quantile_bins",

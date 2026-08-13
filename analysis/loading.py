@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from typing import Dict, Iterable, List, Optional, Set
 
 from framework.cross_run_analysis import build_macro_comparison_rows, list_run_dirs
@@ -93,25 +94,118 @@ def select_best_precision(df):
     others only ever got N=10. Mixing both precisions for the same condition in
     one analysis would silently double-count that condition and blend two different
     noise levels. Keep only the highest-pl_samples row per experiment condition;
-    non-"pl" rows (deterministic/mmr, which don't have a pl_samples axis) pass
-    through untouched.
+    non-pl_samples rows (deterministic/mmr, which don't have a pl_samples axis)
+    pass through untouched.
 
     The condition key must include every axis the experiment grid varies over.
     Grouping by (lamp_num, pl_alpha) alone - as this function originally did when
     the analysis had a single (generator, ranker) cell - silently deleted the
     other three cells' N=10 PL runs for any (task, alpha) that Small/BM25 had
     re-run at N=30.
+
+    Applies to "pl" (keyed by pl_alpha), "pl_randmmr", and "pl_xquad" (both keyed by
+    their own lambda_low/high), since re-running any of these methods at a different
+    pl_samples count - e.g. an initial N=10 probe followed by a higher-precision
+    N=100 run - hits the exact same double-counting risk as "pl" does.
     """
     import pandas as pd
 
-    is_pl = df["rerank_method"] == "pl"
-    pl_df = df[is_pl]
-    if pl_df.empty:
-        return df.copy()
-    key_cols = [c for c in ("generator_name", "ranker", "lamp_num", "pl_alpha") if c in pl_df.columns]
-    best_samples = pl_df.groupby(key_cols)["pl_samples"].transform("max")
-    keep_pl = pl_df["pl_samples"] == best_samples
-    return pd.concat([df[~is_pl], pl_df[keep_pl]], ignore_index=True)
+    out_parts = [df[~df["rerank_method"].isin(["pl", "pl_randmmr", "pl_xquad"])]]
+    for method, key_cols in (
+        ("pl", ("generator_name", "ranker", "lamp_num", "pl_alpha")),
+        ("pl_randmmr", ("generator_name", "ranker", "lamp_num", "pl_alpha",
+                         "pl_randmmr_lambda_low", "pl_randmmr_lambda_high")),
+        ("pl_xquad", ("generator_name", "ranker", "lamp_num", "pl_alpha",
+                       "pl_xquad_lambda_low", "pl_xquad_lambda_high")),
+    ):
+        sub = df[df["rerank_method"] == method]
+        if sub.empty:
+            continue
+        cols = [c for c in key_cols if c in sub.columns]
+        best_samples = sub.groupby(cols)["pl_samples"].transform("max")
+        out_parts.append(sub[sub["pl_samples"] == best_samples])
+    return pd.concat(out_parts, ignore_index=True)
+
+
+_COVERAGE_SUFFIX_RE = re.compile(r"__nq(?:all|[0-9]+)(?:__off[0-9]+)?__seed\d+$")
+_TIMESTAMP_PREFIX_RE = re.compile(r"^\d{8}_\d{6}_")
+_FULL_PASS_RE = re.compile(r"__nqall__seed\d+$")
+
+
+def select_full_coverage_runs(df):
+    """
+    flanT5Base was originally rolled out as two separate passes per (ranker, lamp_num,
+    rerank_method, param) condition - an nq=100 first pass plus a query_offset=100
+    scale-up pass covering the rest - before later being re-run as a single
+    full-coverage pass (query_offset=0, covering every query for that task in one
+    run, named with a bare "__nqall__seed{N}" suffix, no "__off" and no "__nq100").
+    Where a full single-pass run exists for a condition, its query set is a strict
+    superset of the old two-pass split's, so keeping both would double-count every
+    query in that condition. Keep only the full-pass row(s) for any condition that
+    has one; conditions with no full-pass run (e.g. flanT5Small, which never got a
+    single-pass re-run) are left untouched.
+    """
+    import pandas as pd
+
+    def condition_key(run_dir: str) -> str:
+        name = _TIMESTAMP_PREFIX_RE.sub("", os.path.basename(run_dir))
+        return _COVERAGE_SUFFIX_RE.sub("", name)
+
+    cond_key = df["run_dir"].map(condition_key)
+    is_full_pass = df["run_dir"].map(lambda d: bool(_FULL_PASS_RE.search(os.path.basename(d))))
+    full_pass_conditions = set(cond_key[is_full_pass])
+    keep = is_full_pass | ~cond_key.isin(full_pass_conditions)
+    return df[keep].reset_index(drop=True)
+
+
+def select_consistent_precision(
+    df,
+    *,
+    group_cols: Iterable[str],
+    setting_cols: Iterable[str],
+    samples_col: str = "pl_samples",
+    method_col: str = "rerank_method",
+    methods: Iterable[str] = ("pl",),
+    min_samples: int = 10,
+):
+    """
+    Within each `group_cols` group (e.g. one lamp_num), pool `methods` rows at a single
+    pl_samples (N) precision shared by every `setting_cols` combination present in that
+    group (e.g. every (generator_name, ranker, pl_alpha) triple) - the highest N for which
+    ALL of them have data, falling back to `min_samples` if no higher N is universal.
+
+    Unlike `select_best_precision` (which maximizes N independently per condition and can
+    therefore mix, say, N=30 for one (generator, ranker, alpha) triple with N=10 for
+    another within the same pooled comparison), this keeps every condition inside one
+    group at the same sample count, so no condition gets more independent draws - and
+    hence a tighter empirical distribution - than any other it's being compared against.
+    Rows for methods not in `methods` pass through untouched.
+    """
+    import pandas as pd
+
+    group_cols = list(group_cols)
+    setting_cols = list(setting_cols)
+    methods_set = set(methods)
+
+    out_parts = [df[~df[method_col].isin(methods_set)]]
+    for method in methods_set:
+        sub = df[df[method_col] == method]
+        if sub.empty:
+            continue
+        for group_key, g in sub.groupby(group_cols, dropna=False):
+            available = g.groupby(setting_cols, dropna=False)[samples_col].apply(
+                lambda s: set(int(v) for v in s.dropna())
+            )
+            if available.empty:
+                continue
+            candidate_ns = sorted(set().union(*available.to_numpy()), reverse=True)
+            chosen = min_samples
+            for n in candidate_ns:
+                if n >= min_samples and all(n in s for s in available.to_numpy()):
+                    chosen = n
+                    break
+            out_parts.append(g[g[samples_col] == chosen])
+    return pd.concat(out_parts, ignore_index=True)
 
 
 def load_relevance_mapping(lamp_num: int, generator_name: str):
