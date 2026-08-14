@@ -39,28 +39,26 @@ built on such rerankers can maintain, and sometimes exceed, the generation utili
 deterministic ranking. We reproduce this setup on the LaMP benchmark and investigate
 the mechanism behind it, using Maximal Marginal Relevance (MMR) -- a deterministic
 diversity-relevance re-ranker -- alongside Plackett-Luce (PL) sampling so that
-diversification can be studied separately from the randomness of stochastic ranking
-itself. We find a real but narrow and asymmetric effect: in the least-diversified
-quintile of each method's own output, MMR's utility significantly exceeds the
-deterministic baseline in 4 of 7 LaMP tasks, while PL's blind randomization does so in
-only 1 of 7 -- evidence that where diversification helps, it is mostly MMR's
-relevance-aware selection doing the work, not randomization itself. We nonetheless
-propose a hybrid reranking method, RandMMR -- PL sampling of the top-ranked item
-followed by a randomized MMR pass over the remaining ranks -- that drives Expected
-Exposure Disparity far below both the deterministic baseline and any plain-PL setting
-reaching a comparable disparity level, while matching or exceeding plain PL's utility
-in 17 of 24 tested (task, generator, retriever) cells. We also offer a critical
-reading of both the original paper's evaluation protocol -- most notably its reliance
-on a stochastic oracle for utility normalization that is expensive to reproduce
-faithfully -- and of the LaMP benchmark itself as ground truth for this kind of study:
-its relevance labels come from a single generator's utility delta rather than fixed
-human judgment, its candidate pools are small with an unusually high useful-document
-ratio next to classical retrieval collections, our generators are far smaller than
-typical production RAG systems, and we find direct evidence that PL's
-fairness/ranking-quality trade-off is not a per-query guarantee -- individual queries'
-relevance-weighted exposure exceeds the deterministic ranking's roughly a third of the
-time even though the trade-off holds on average. We lay out concrete directions for
-future work.
+diversification can be studied separately from stochastic ranking's randomness. In
+each method's least-diversified quintile of output, MMR's utility significantly beats
+deterministic ranking in 4 of 7 LaMP tasks; PL's does so in only 1 of 7 -- where
+diversification helps, it is mostly MMR's relevance-aware selection doing the work,
+not randomization itself. Building on this, we propose RandMMR: PL sampling of the
+top-ranked item, then a randomized MMR pass over the remaining ranks. It drives
+Expected Exposure Disparity far below both deterministic ranking and any plain-PL
+setting reaching comparable disparity, and its utility matches or exceeds matched
+plain PL's in 17 of 24 tested (task, generator, retriever) cells -- but only one of
+those differences is individually significant, coverage is uneven (as few as 10
+samples in some cells), and the dataset caveats below apply here too, so we treat
+this as encouraging, not established. We also offer a critical reading of both the
+original paper's evaluation protocol -- most notably its reliance on a stochastic
+oracle for utility normalization that is expensive to reproduce faithfully -- and of
+the LaMP benchmark itself as ground truth for this kind of study: its relevance
+labels come from a single generator's utility delta rather than fixed human judgment,
+its candidate pools are small with an unusually high useful-document ratio, both
+papers' generators are far smaller and older than deployed RAG systems, and PL's
+fairness/ranking-quality trade-off does not hold query-by-query even though it holds
+on average. We lay out concrete directions for future work.
 \end{abstract}
 
 \vspace{0.3em}
@@ -356,21 +354,28 @@ thus little room to diversify.
 \begin{figure}[t]
 \centering
 \includegraphics[width=\linewidth]{fig_ild_sweetspot.pdf}
-\caption{Mean EU$_{\text{norm}}$ by ILD$_{\text{norm}}$ quintile (Q1 = least
-diversified), PL vs.\ MMR, task-stratified across all 7 tasks and 4
-generator$\times$retriever cells, vs.\ the deterministic mean (dashed).}
+\caption{Per-task $\Delta$EU$_{\text{norm}}$ vs.\ each task's own deterministic mean,
+by ILD$_{\text{norm}}$ quintile (Q1 = least diversified), PL vs.\ MMR. Thin lines =
+individual LaMP tasks; bold = task-stratified mean.}
 \label{fig:ild-sweetspot}
 \end{figure}
 
 The key test is whether this diversity increase predicts \emph{higher} utility.
 Figure~\ref{fig:ild-sweetspot} bins PL's and MMR's own lists separately into
-ILD$_{\text{norm}}$ quintiles and plots mean EU$_{\text{norm}}$ against the
-deterministic mean as reference. Both methods peak at Q1 --- not an extreme corner of
-the absolute diversity range, since even ``least diversified'' PL/MMR output is
-usually still measurably more diverse than a bare top-$k$ list, given how small LaMP's
-candidate pools are (Section~\ref{sec:threats}) --- but the effect is asymmetric:
-MMR's Q1 mean (0.528) clears the deterministic reference (0.507) with room to spare,
-while PL's Q1 mean (0.507) is essentially flush with it.
+ILD$_{\text{norm}}$ quintiles and plots each task's own $\Delta$EU$_{\text{norm}}$
+relative to \emph{that task's} deterministic mean, rather than pooling raw
+EU$_{\text{norm}}$ across seven tasks of very different scale and variance into one
+line, which would hide exactly the disagreement a pooled average is supposed to
+average over. The seven thin per-task lines do disagree substantially with each
+other --- real task-to-task heterogeneity, not something to explain away --- but
+MMR's task-stratified mean (bold) sits at or above zero in every quintile and
+highest at Q1 (least diversified, though still not an extreme corner of the
+absolute diversity range, since even PL/MMR's ``least diversified'' output is
+usually more diverse than a bare top-$k$ list on LaMP's small candidate pools,
+Section~\ref{sec:threats}), while PL's mean sits at or below zero everywhere except
+a roughly-flat Q1. We do not read a specific curve shape into either line given how
+much the underlying tasks vary; the robust claim is the per-task result in
+Figure~\ref{fig:mmr-vs-pl-q1}, next.
 
 \begin{figure}[t]
 \centering

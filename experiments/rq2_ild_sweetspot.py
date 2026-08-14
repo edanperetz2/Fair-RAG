@@ -128,15 +128,33 @@ print(agg.round(4).to_string(index=False))
 
 
 # ---- Figure A: EU_norm by ILD quintile, PL vs MMR vs deterministic ----
-fig, ax = plt.subplots(figsize=(4.2, 3.0))
-for method, (color, marker, label) in METHOD_STYLE.items():
-    sub = agg[agg["method"] == method].sort_values("bin")
-    ax.plot(sub["bin"], sub["mean_eu_norm"], color=color, marker=marker, ms=6,
-            linewidth=2, label=label)
-ax.axhline(det_ref, color="black", linewidth=1.2, linestyle="--", label="deterministic")
-ax.set_xlabel("ILD$_{norm}$ quintile (Q1 = least diversified)")
-ax.set_ylabel("Mean EU$_{norm}$\n(task-stratified)")
-ax.legend(frameon=False)
+# A single pooled line per method would hide how much the 7 tasks disagree with each
+# other (different baselines, different variances, different query counts) - so each
+# panel shows the 7 individual per-task lines (thin) behind the task-stratified mean
+# (bold), and each task's own line is normalized relative to ITS OWN deterministic
+# mean (delta, not raw EU_norm) so tasks with very different EU_norm scales are
+# visually comparable on one axis instead of the bold line being pulled around by
+# whichever task happens to have the largest raw EU_norm.
+fig, axes = plt.subplots(1, 2, figsize=(6.6, 3.0), sharey=True)
+for ax, (method, (color, marker, label)) in zip(axes, METHOD_STYLE.items()):
+    sub = bin_df[bin_df["method"] == method].copy()
+    sub["delta_vs_det"] = sub["lamp_num"].map(
+        lambda t: det_task_means.get(t, float("nan"))
+    )
+    sub["delta_vs_det"] = sub["mean_eu_norm"] - sub["delta_vs_det"]
+    for task, g in sub.groupby("lamp_num"):
+        g = g.sort_values("bin")
+        ax.plot(g["bin"], g["delta_vs_det"], color=color, alpha=0.25, linewidth=1.0)
+    mean_line = sub.groupby("bin")["delta_vs_det"].mean()
+    bin_order = [f"Q{i+1}" for i in range(N_BINS)]
+    mean_line = mean_line.reindex(bin_order)
+    ax.plot(bin_order, mean_line.values, color=color, marker=marker, ms=6,
+            linewidth=2.4, label=f"{label} (task mean)", zorder=5)
+    ax.axhline(0, color="black", linewidth=1.0, linestyle="--")
+    ax.set_xlabel("ILD$_{norm}$ quintile\n(Q1 = least diversified)")
+    ax.set_title(label, fontsize=9)
+axes[0].set_ylabel("$\\Delta$EU$_{norm}$ vs.\\ own task's\ndeterministic mean")
+fig.suptitle("Thin lines = individual tasks; bold = task-stratified mean", fontsize=8, y=1.03)
 fig.tight_layout()
 for ext in ("pdf", "png"):
     fig.savefig(os.path.join(FIG_DIR, f"fig_ild_sweetspot.{ext}"))
