@@ -205,10 +205,15 @@ baseline, \emph{improves that specific generator's} task metric
 $\delta{>}0$, else $0$). Ground truth is therefore generator-specific, single-sample (no
 repeated-trial averaging over the scoring judgment itself), and not portable across
 models: the same document can be ``relevant'' for one generator and ``irrelevant''
-for another on the identical query, which is exactly what we observe (Table
-\ref{tab:corpus}) --- e.g.\ LaMP-1's useful-document rate is 9.5\% under Flan-T5-Small
-but 22.5\% under Flan-T5-Base, a 2.4$\times$ difference on the same queries and
-candidates. Any fairness-ranking result computed against these labels inherits this:
+for another on the identical query. Table~\ref{tab:corpus}'s two rows are not
+directly comparable this way, though, since each generator's own utility-delta
+filtering keeps a different, mostly non-overlapping query subset --- LaMP-1 keeps 51
+queries for Flan-T5-Small and 232 for Flan-T5-Base, only 21 in both. Restricting to
+those 21 shared queries (identical candidate pools on both sides), 22.8\% of paired
+document judgments flip between the two generators' labels, and the useful-document
+rate itself still differs sharply on this identical subset (9.4\% under
+Flan-T5-Small vs.\ 20.2\% under Flan-T5-Base). Any fairness-ranking result computed
+against these labels inherits this:
 it is a statement about ranking relative to \emph{one model's} learned notion of
 usefulness, not a model-agnostic ground truth.
 
@@ -218,11 +223,13 @@ statistics. Candidate pools range 19--192 documents/query (mean $\sim$110); the
 useful-document rate ranges 9.5\%--45.5\% (mean $\sim$29\%). Classical TREC ad hoc
 collections typically retrieve from candidate pools several orders of magnitude
 larger, with relevance rates well under 1\%. A ranking-fairness metric's behavior at
-$k{=}5$ depends heavily on how much of the candidate pool is actually useful: with a
-30\% useful rate and $k{=}5$, a policy that samples uniformly at random from the top
-of the pool already has decent odds of surfacing several useful documents, which
-compresses the deterministic-vs-stochastic utility gap the whole fairness/utility
-trade-off is measured against, relative to a $<$1\%-relevance TREC-scale setting.
+$k{=}5$ --- the truncation depth reported by \cite{eunkim2025fairrag} and, in turn,
+the only depth used anywhere in our own experiments --- depends heavily on how much
+of the candidate pool is actually useful: with a 30\% useful rate and $k{=}5$, a
+policy that samples uniformly at random from the top of the pool already has decent
+odds of surfacing several useful documents, which compresses the
+deterministic-vs-stochastic utility gap the whole fairness/utility trade-off is
+measured against, relative to a $<$1\%-relevance TREC-scale setting.
 
 \textbf{Our generators are far smaller than deployed RAG systems.} Flan-T5-Small
 (77M) and Flan-T5-Base (250M) \cite{chung2024scaling} are two to three orders of
@@ -525,6 +532,11 @@ one cell reaches significance individually.
   $\lambda$) customized per dataset, task, or specific information need, rather than
   one fixed setting swept globally --- directly motivated by RQ2's finding that the
   effect is task-specific.
+  \item Sweep other parameters we held fixed throughout at the source paper's own
+  reported value, most notably the truncation depth $k{=}5$ (Section~\ref{sec:data}):
+  since several of this paper's own findings (the corpus-size caveat above; RQ2's
+  quintile effect) are plausibly $k$-dependent, checking whether they hold at other
+  depths is a natural robustness check we did not have scope for here.
 \end{enumerate}
 
 {\small
