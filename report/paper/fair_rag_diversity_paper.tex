@@ -37,28 +37,18 @@ Fairness-aware stochastic rerankers are usually expected to trade ranking qualit
 more equitable item exposure, yet Eun Kim and Diaz (2025) report that RAG systems
 built on such rerankers can maintain, and sometimes exceed, the generation utility of
 deterministic ranking. We reproduce this setup on the LaMP benchmark and investigate
-the mechanism behind it, using Maximal Marginal Relevance (MMR) -- a deterministic
-diversity-relevance re-ranker -- alongside Plackett-Luce (PL) sampling so that
-diversification can be studied separately from stochastic ranking's randomness. In
-each method's least-diversified quintile of output, MMR's utility significantly beats
-deterministic ranking in 4 of 7 LaMP tasks; PL's does so in only 1 of 7 -- where
-diversification helps, it is mostly MMR's relevance-aware selection doing the work,
-not randomization itself. Building on this, we propose RandMMR: PL sampling of the
-top-ranked item, then a randomized MMR pass over the remaining ranks. It drives
-Expected Exposure Disparity far below both deterministic ranking and any plain-PL
-setting reaching comparable disparity, and its utility matches or exceeds matched
-plain PL's in 17 of 24 tested (task, generator, retriever) cells -- but only one of
-those differences is individually significant, coverage is uneven (as few as 10
-samples in some cells), and the dataset caveats below apply here too, so we treat
-this as encouraging, not established. We also offer a critical reading of both the
-original paper's evaluation protocol -- most notably its reliance on a stochastic
-oracle for utility normalization that is expensive to reproduce faithfully -- and of
-the LaMP benchmark itself as ground truth for this kind of study: its relevance
-labels come from a single generator's utility delta rather than fixed human judgment,
-its candidate pools are small with an unusually high useful-document ratio, both
-papers' generators are far smaller and older than deployed RAG systems, and PL's
-fairness/ranking-quality trade-off does not hold query-by-query even though it holds
-on average. We lay out concrete directions for future work.
+the mechanism behind it, contrasting a deterministic diversity-relevance re-ranker
+(MMR) against pure stochastic sampling (Plackett-Luce) to separate the effect of
+diversity from the effect of randomness itself. We find that relevance-aware
+diversification is a real, though narrow and task-dependent, source of utility gain
+over deterministic ranking, while blind randomization mostly is not --- evidence
+against a simple story in which any diversification helps equally. Building on this,
+we propose RandMMR, a hybrid reranker combining stochastic sampling with
+relevance-aware diversification, and find it pushes fairness substantially further
+than either ingredient alone while preserving utility --- an encouraging, though not
+yet conclusively established, result. We also offer a critical reading of both the
+original paper's evaluation protocol and of the LaMP benchmark itself as ground truth
+for this kind of study, and lay out concrete directions for future work.
 \end{abstract}
 
 \vspace{0.3em}
@@ -374,8 +364,13 @@ absolute diversity range, since even PL/MMR's ``least diversified'' output is
 usually more diverse than a bare top-$k$ list on LaMP's small candidate pools,
 Section~\ref{sec:threats}), while PL's mean sits at or below zero everywhere except
 a roughly-flat Q1. We do not read a specific curve shape into either line given how
-much the underlying tasks vary; the robust claim is the per-task result in
-Figure~\ref{fig:mmr-vs-pl-q1}, next.
+much the underlying tasks vary --- concretely, MMR's Q5 (most-diversified) uptick is
+not a broad effect at all: it is one task, LaMP-2 ($+0.182$, $p{<}10^{-7}$, $n{=}450$),
+with every other task's Q5 delta small and non-significant (LaMP-1 even negative);
+the task-stratified mean at Q5 mostly reflects that one outlier, not a general
+``very high diversity helps'' pattern. We have no confirmed explanation for why
+LaMP-2 behaves this way and do not speculate further. The robust claim is the
+per-task result in Figure~\ref{fig:mmr-vs-pl-q1}, next.
 
 \begin{figure}[t]
 \centering
@@ -386,10 +381,11 @@ bin, PL vs.\ MMR, per task. $^*p{<}0.05$, $^{**}p{<}0.01$.}
 \end{figure}
 
 Figure~\ref{fig:mmr-vs-pl-q1} breaks this down per task: MMR's Q1 delta vs.\
-deterministic is positive in 5 of 7 tasks and significant in 4 (LaMP-1, LaMP-3,
-LaMP-4, LaMP-6; all $p{<}0.01$), with the remaining two negligible rather than
-meaningfully negative (LaMP-5: $-0.004$; LaMP-7: $\approx 0$). PL's Q1 delta is
-positive in only 3 of 7 tasks and significant in just one (LaMP-3, $p{<}0.001$).
+deterministic is positive in 6 of 7 tasks and significant in 4 (LaMP-3, LaMP-4,
+LaMP-6 at $p{<}0.01$; LaMP-1 at $p{<}0.05$); the two non-significant positive tasks
+are negligible (LaMP-5: $+0.0003$; LaMP-7: $+0.009$), and the one negative task is
+also non-significant (LaMP-2: $-0.012$). PL's Q1 delta is positive in 4 of 7 tasks
+and significant in just one (LaMP-3, $p{<}0.01$).
 Where diversification helps at all, in other words, it is mostly MMR doing the work:
 its relevance-aware selection retains more of what already made the original ranking
 good, while PL's blind randomization mostly just adds noise.
@@ -486,7 +482,7 @@ than as errors in either codebase.
 
 \textbf{RQ2.} We find a narrow, asymmetric form of support for the
 diversity-mediation hypothesis in our proposal, not the broad, uniform version it was
-originally framed as. Across 177{,}718 individual query-level PL/MMR observations
+originally framed as. Across 128{,}966 individual query-level PL/MMR observations
 (Section~\ref{sec:rq2}), MMR's least-diversified quintile significantly exceeds
 deterministic utility in 4 of 7 tasks; PL's does so in only 1. Diversification helps
 where it helps mostly through MMR's relevance-aware selection, mildly applied, not

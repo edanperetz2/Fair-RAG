@@ -31,6 +31,7 @@ os.chdir(ROOT)
 
 from framework import build_query_metric_rows, list_run_dirs
 from analysis import select_consistent_precision, normalize_query_rows
+from analysis.loading import select_full_coverage_runs
 
 FIG_DIR = os.path.join(ROOT, "report", "figures")
 TABLE_DIR = os.path.join(ROOT, "report", "tables")
@@ -53,6 +54,7 @@ METHOD_STYLE = {"mmr": ("#2A9D8F", "o", "MMR"), "pl": ("#E76F51", "^", "PL")}
 print("Loading run data...")
 run_dirs = list_run_dirs()
 raw_df = pd.DataFrame(build_query_metric_rows(run_dirs))
+raw_df = select_full_coverage_runs(raw_df)
 raw_df = raw_df[raw_df["generator_name"].isin(GENERATORS) & raw_df["ranker"].isin(RANKERS)]
 raw_df = raw_df[
     (raw_df["rerank_method"] == "deterministic")
