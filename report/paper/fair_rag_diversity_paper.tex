@@ -185,62 +185,41 @@ far any effect we measure in the results that follow (Section~\ref{sec:results})
 including RQ1's reproduction and RQ2's diversity test, should generalize.
 
 \textbf{Relevance is a per-generator utility delta, not a fixed judgment.} Unlike
-TREC-style collections, where a document's relevance is a human assessor's judgment
-fixed once and shared by every system evaluated against it, a LaMP candidate document
-is labeled relevant iff conditioning generation on it, versus a zero-context
-baseline, \emph{improves that specific generator's} task metric
-($\delta = \text{augment\_score} - \text{baseline\_score}$; label $=1$ if
-$\delta{>}0$, else $0$). Ground truth is therefore generator-specific, single-sample (no
-repeated-trial averaging over the scoring judgment itself), and not portable across
-models: the same document can be ``relevant'' for one generator and ``irrelevant''
-for another on the identical query. Table~\ref{tab:corpus}'s two rows are not
-directly comparable this way, though, since each generator's own utility-delta
-filtering keeps a different, mostly non-overlapping query subset --- LaMP-1 keeps 51
-queries for Flan-T5-Small and 232 for Flan-T5-Base, only 21 in both. Restricting to
-those 21 shared queries (identical candidate pools on both sides), 22.8\% of paired
-document judgments flip between the two generators' labels, and the useful-document
-rate itself still differs sharply on this identical subset (9.4\% under
-Flan-T5-Small vs.\ 20.2\% under Flan-T5-Base). Any fairness-ranking result computed
-against these labels inherits this:
-it is a statement about ranking relative to \emph{one model's} learned notion of
-usefulness, not a model-agnostic ground truth.
+TREC-style collections, where relevance is a human judgment shared by every system, a
+LaMP document is labeled relevant iff including it, versus a zero-context baseline,
+\emph{improves that specific generator's} task score
+($\delta = \text{augment\_score} - \text{baseline\_score}$; label $=1$ iff
+$\delta{>}0$). Ground truth is therefore generator-specific: on the 21 LaMP-1 queries
+shared by both generators' filtered sets, 22.8\% of document labels flip between
+them, and the useful-document rate itself differs sharply (9.4\% vs.\ 20.2\%). Any
+fairness-ranking result computed against these labels is a statement about one
+model's learned usefulness, not a model-agnostic ground truth.
 
 \textbf{The corpus is small, with an unusually high useful-document rate.} Table
-\ref{tab:corpus} gives per-task, per-generator candidate-pool and useful-document
-statistics. Candidate pools range 19--192 documents/query (mean $\sim$110); the
-useful-document rate ranges 9.5\%--45.5\% (mean $\sim$29\%). Classical TREC ad hoc
-collections typically retrieve from candidate pools several orders of magnitude
-larger, with relevance rates well under 1\%. A ranking-fairness metric's behavior at
-$k{=}5$ --- the truncation depth reported by \cite{eunkim2025fairrag} and, in turn,
-the only depth used anywhere in our own experiments --- depends heavily on how much
-of the candidate pool is actually useful: at a useful rate around 30\%, even a
-fairness-motivated rerank that displaces much of the base ranking's top-$k$ still has
-decent odds of retaining several useful documents, which narrows the
-deterministic-vs-stochastic utility gap the whole fairness/utility trade-off is
-measured against, relative to a $<$1\%-relevance TREC-scale setting.
+\ref{tab:corpus} gives per-task, per-generator statistics: candidate pools of
+19--192 documents/query (mean $\sim$110) and useful-document rates of
+9.5\%--45.5\% (mean $\sim$29\%), against classical TREC collections' orders-of-
+magnitude-larger pools and sub-1\% relevance rates. At $k{=}5$
+\cite{eunkim2025fairrag} and a $\sim$30\% useful rate, even a fairness-motivated
+rerank that displaces much of the top-$k$ still has decent odds of retaining several
+useful documents, narrowing the deterministic-vs-stochastic utility gap the whole
+fairness/utility trade-off is measured against.
 
-\textbf{Generators on both sides are small and dated by industry standards.}
-Flan-T5-Small (77M) and Flan-T5-Base (250M) \cite{chung2024scaling}, the two we run,
-are two to three orders of magnitude smaller than generators typically used in
-production RAG systems ($\geq$3B parameters, e.g.\ Llama-3-8B- or GPT-4o-mini-class
-models). This is not only a limitation of our reduced grid: the source paper's own
-larger generators, up to Flan-T5-XXL (11B), are from the same 2022-era Flan-T5
-family \cite{chung2024scaling}, not instruction- or task-finetuned beyond LaMP's own
-prompt format, and now several generations behind the models typically used in
-production RAG deployments today. Whether the fairness/utility
-relationships either paper measures --- e.g.\ RQ2's diversity effect here --- persist
-at production model scale and architecture is untested by both (see Future Work).
+\textbf{Generators on both sides are small and dated.} Flan-T5-Small (77M) and
+Flan-T5-Base (250M) \cite{chung2024scaling} are two to three orders of magnitude
+smaller than production RAG generators ($\geq$3B parameters). This is not only our
+own limitation: the source paper's largest generator, Flan-T5-XXL (11B), is from the
+same 2022-era family, not finetuned beyond LaMP's prompt format, and several
+generations behind what is typically deployed today. Whether either paper's findings
+persist at production scale is untested by both (see Future Work).
 
 \textbf{The EE-D/EE-R trade-off is not a per-query guarantee.} The same small,
-high-relevance-rate corpus (previous point) lets PL's aggregate fairness/quality
-trade-off fail query-by-query even while holding on average: across all completed PL
-conditions ($\alpha \in \{1,2,4,8\}$, both generators, both retrievers, LaMP-1--7),
-an individual query's PL EE-R exceeds its own deterministic EE-R in 29.7\% of
-query-level observations --- 37--38\% at $\alpha \in \{1,2,4\}$, still 8.3\% at the
-mildest, near-deterministic $\alpha{=}8$ --- though this mostly washes out once
-pooled to a macro (task, generator, ranker, $\alpha$) mean (14 of 112 conditions,
-all at $\alpha{=}8$ and $\Delta \leq 0.004$). A caution against over-interpreting any
-single query's or single run's fairness/quality numbers.
+high-relevance corpus lets PL's aggregate trade-off fail query-by-query while holding
+on average: an individual query's PL EE-R exceeds its own deterministic EE-R in
+29.7\% of observations (37--38\% at $\alpha\in\{1,2,4\}$, still 8.3\% at the mildest
+$\alpha{=}8$) --- though this mostly washes out once pooled to a macro mean (14 of
+112 conditions, all at $\alpha{=}8$, $\Delta \leq 0.004$). A caution against
+over-interpreting any single query's or run's numbers.
 
 \section{Methodology Notes}
 \label{sec:method}
@@ -277,6 +256,7 @@ value is universal.
 \label{sec:results}
 
 \subsection{RQ1: Reproduction fidelity}
+\label{sec:rq1}
 
 Our reproduction of the paper's Figure 4 (EE-D$\leftrightarrow$EE-R$\leftrightarrow$EU
 relationships) and Table 2 (disparity-interval utility deltas) recovers the same
@@ -290,36 +270,15 @@ is not directly comparable, since the paper's ceiling is a genuine stochastic or
 (multiple sampled optimal permutations) while ours is a single deterministic oracle
 draw (Future Work).
 
-Table~\ref{tab:baseline} compares our reproduced deterministic-baseline EU against the
-two tasks for which the paper publishes baseline values directly. Flan-T5-Base is
-within 4\% on both. Flan-T5-Small reproduces 22--30\% \emph{below} the paper on
-LaMP-1 --- traced to a genuine, content-invariant model failure mode (it predicts the
-same class label regardless of retrieved context on this task) --- and 38--42\%
-\emph{above} on LaMP-4, consistent with our single-draw normalization ceiling being
-systematically looser than the paper's true stochastic oracle. We treat both as
-reproduction-fidelity limitations under a reduced compute grid, not as errors in
-either codebase.
-
-\begin{table}[t]
-\centering
-\small
-\caption{Deterministic-baseline EU: paper vs.\ our reproduction.}
-\label{tab:baseline}
-\begin{tabular}{@{}llrrr@{}}
-\toprule
-Task & Model & Paper & Ours & $\Delta$\% \\
-\midrule
-LaMP-1 & BM25+Small       & 0.308 & 0.240 & $-$22\% \\
-LaMP-1 & Contr.+Small     & 0.286 & 0.200 & $-$30\% \\
-LaMP-1 & BM25+Base        & 0.670 & 0.695 & $+$4\% \\
-LaMP-1 & Contr.+Base      & 0.637 & 0.641 & $+$1\% \\
-LaMP-4 & BM25+Small       & 0.217 & 0.299 & $+$38\% \\
-LaMP-4 & Contr.+Small     & 0.254 & 0.360 & $+$42\% \\
-LaMP-4 & BM25+Base        & 0.223 & 0.304 & $+$36\% \\
-LaMP-4 & Contr.+Base      & 0.268 & 0.361 & $+$35\% \\
-\bottomrule
-\end{tabular}
-\end{table}
+Table~\ref{tab:baseline} (Appendix~\ref{app:baseline}) compares our reproduced
+deterministic-baseline EU against the two tasks for which the paper publishes
+baseline values directly. Flan-T5-Base is within 4\% on both. Flan-T5-Small
+reproduces 22--30\% \emph{below} the paper on LaMP-1 --- traced to a genuine,
+content-invariant model failure mode (it predicts the same class label regardless of
+retrieved context on this task) --- and 38--42\% \emph{above} on LaMP-4, consistent
+with our single-draw normalization ceiling being systematically looser than the
+paper's true stochastic oracle. We treat both as reproduction-fidelity limitations
+under a reduced compute grid, not as errors in either codebase.
 
 \subsection{RQ2: Diversity as the mediating mechanism}
 \label{sec:rq2}
@@ -421,9 +380,8 @@ is used regardless of direction.
 \centering
 \small
 \caption{RandMMR ($\alpha{=}4$, $\lambda\sim U(0.8,1.0)$) vs.\ matched plain PL, LaMP-1
-and LaMP-4 (macro means). PL $\alpha$ chosen per row (see text). EE-D is the paper's
-own inherently bounded metric (deterministic $=1.00$ throughout, omitted here since it
-carries no information); EU is our per-query empirical-max normalized EU$_{\text{norm}}$.
+and LaMP-4 (macro means; PL $\alpha$ chosen per row, see text). EE-D is the paper's
+own bounded metric; EU is our per-query empirical-max normalized EU$_{\text{norm}}$.
 $^*p{<}0.05$.}
 \label{tab:hybrid}
 \begin{tabular}{@{}lllrrrrr@{}}
@@ -463,78 +421,50 @@ help than not.
 \section{Conclusions}
 \label{sec:conclusion}
 
-\textbf{RQ1.} The qualitative shape of the paper's central relationships (fairness
-vs.\ ranking quality; ranking quality vs.\ utility) reproduces once curve
-construction is matched exactly to the paper's method. Absolute utility numbers,
-however, diverge meaningfully despite an extensive fidelity audit finding no
-implementation, data, model-version, or seed-related explanation --- a
-$\sim$25\% shortfall specific to LaMP-1/Flan-T5-Small, traced to a genuine,
-content-invariant model failure mode, and a uniform $\sim$35--42\% excess across
-\emph{all four} LaMP-4 cells, most plausibly a looser empirical-max normalization
-ceiling on our side (a single deterministic oracle draw vs.\ the paper's true
-stochastic multi-sample oracle) rather than a per-model artifact. We report both as
-limitations of exact reproduction under a reduced retriever/generator grid rather
-than as errors in either codebase.
+\textbf{RQ1.} The paper's central relationships (fairness vs.\ ranking quality;
+ranking quality vs.\ utility) reproduce qualitatively once curve construction matches
+the paper's method exactly, but absolute utility numbers diverge meaningfully
+(Appendix~\ref{app:baseline}) despite an audit finding no implementation-level
+explanation --- a limitation of exact reproduction under a reduced grid, not a
+codebase error.
 
 \textbf{RQ2.} We find a narrow, asymmetric form of support for the
 diversity-mediation hypothesis in our proposal, not the broad, uniform version it was
-originally framed as. Across 128{,}966 individual query-level PL/MMR observations
-(Section~\ref{sec:rq2}), MMR's least-diversified quintile significantly exceeds
-deterministic utility in 4 of 7 tasks; PL's does so in only 1. Diversification helps
-where it helps mostly through MMR's relevance-aware selection, mildly applied, not
-through PL's fairness-motivated randomization on its own, and even then only in about
-half the tasks we test.
+originally framed as: diversification helps mostly through MMR's relevance-aware
+selection, and only in about half the tasks we test, not through PL's
+fairness-motivated randomization on its own (Section~\ref{sec:rq2}).
 
-\textbf{RQ3.} We proposed RandMMR, a hybrid policy motivated by RQ1--RQ2: PL sampling
-of the top-ranked item, then a randomized-MMR pass over the remaining ranks.
-Evaluated against plain PL at a matched (or conservatively, slightly worse) fairness
-level across 24 completed cells spanning six LaMP tasks (Section~\ref{sec:rq3}),
-RandMMR's normalized EU exceeds the matched PL's in 17 of 24 cells (71\%),
-significantly in one, with no cell showing a significant PL advantage; a richer
-LaMP-1 view across RandMMR's own $\alpha$ sweep shows it reaching EE-D well below any
-workable plain-PL setting except $\alpha{=}1$, which it matches or beats in utility
-throughout. We read this as encouraging rather than conclusive --- the direction is
-consistent and the fairness gain is large, but the grid is not yet complete and only
-one cell reaches significance individually.
+\textbf{RQ3.} RandMMR, our proposed hybrid, matches or exceeds matched plain PL's
+utility in 17 of 24 tested cells while driving EE-D far below any workable plain-PL
+setting except $\alpha{=}1$ (Section~\ref{sec:rq3}). Encouraging, not conclusive: the
+grid is incomplete and only one cell is individually significant.
 
 \section{Future Work}
 \label{sec:future}
 
 \begin{enumerate}[leftmargin=1.1em,itemsep=1pt]
-  \item Explore other hybrid reranking policies beyond RandMMR's specific
-  PL-rank-1-then-randomized-MMR-tail design (e.g., varying which ranks get which
-  treatment, or blending in an explicit relevance floor).
-  \item Explore other diversity/fairness reranking methods entirely, e.g.\
-  xQuAD-style explicit sub-topic coverage, as a further point of comparison to MMR
-  and PL.
-  \item Run with larger sample counts, especially for the under-powered
-  Flan-T5-Small RandMMR cells and the tasks outside our 24-cell grid
-  (Section~\ref{sec:rq3}).
-  \item Acquire or construct a more stable dataset/ground-truth for fairness-in-RAG
-  evaluation, less dependent on a single generator's utility delta for relevance
-  (Section~\ref{sec:threats}).
-  \item Repeat with stronger, newer generators actually used in production RAG
-  systems ($\geq$3B parameters, often task-finetuned) and with SPLADE as a third
-  retriever, to test whether our findings are small-model/small-grid artifacts.
-  \item A properly stochastic oracle retriever (multiple sampled optimal
-  permutations, as specified in the paper's Appendix C.3, vs.\ our single
-  deterministic draw) would tighten the utility-normalization ceiling behind
-  Table~\ref{tab:baseline}.
-  \item A causal mediation analysis (e.g., instrumenting diversity directly rather
-  than reading it off realized lists) would be a stronger test of RQ2 than the
-  quintile-comparison design used here, which remains correlational.
+  \item Explore other hybrid reranking policies beyond RandMMR's specific design, and
+  other diversity/fairness methods entirely (e.g.\ xQuAD-style sub-topic coverage), as
+  further points of comparison to MMR and PL.
+  \item Complete the RandMMR grid with larger sample counts, especially the
+  under-powered Flan-T5-Small cells (Section~\ref{sec:rq3}).
+  \item Acquire or construct a more stable ground truth for fairness-in-RAG
+  evaluation, less dependent on a single generator's utility delta (Section~\ref{sec:threats}).
+  \item Repeat with stronger, production-scale generators ($\geq$3B, often
+  finetuned) and SPLADE as a third retriever, and sweep other parameters held fixed
+  at the paper's reported values (most notably $k{=}5$), to test whether our
+  findings are small-model/small-grid/small-$k$ artifacts.
+  \item A properly stochastic oracle retriever (Appendix C.3 of
+  \cite{eunkim2025fairrag}) would tighten Appendix~\ref{app:baseline}'s
+  normalization ceiling; a causal mediation analysis instrumenting diversity
+  directly would be a stronger test of RQ2 than the correlational design used here.
   \item The paper's Figure 5 (NLI-based attribution fairness) requires an entailment
-  pipeline we did not build and is a natural extension once RQ1's open discrepancies
-  are resolved.
+  pipeline we did not build and is a natural extension once RQ1's discrepancies are
+  resolved.
   \item Tackle optimization of diversity/fairness toggles (PL $\alpha$, MMR
-  $\lambda$) customized per dataset, task, or specific information need, rather than
-  one fixed setting swept globally --- directly motivated by RQ2's finding that the
-  effect is task-specific.
-  \item Sweep other parameters we held fixed throughout at the source paper's own
-  reported value, most notably the truncation depth $k{=}5$ (Section~\ref{sec:data}):
-  since several of this paper's own findings (the corpus-size caveat above; RQ2's
-  quintile effect) are plausibly $k$-dependent, checking whether they hold at other
-  depths is a natural robustness check we did not have scope for here.
+  $\lambda$) customized per task or information need, rather than one fixed setting
+  swept globally --- directly motivated by RQ2's finding that the effect is
+  task-specific.
 \end{enumerate}
 
 {\small
@@ -589,5 +519,30 @@ R.\ D.\ Luce.
 
 \end{thebibliography}
 }
+
+\appendix
+\section{Deterministic-Baseline EU Detail}
+\label{app:baseline}
+
+\begin{table}[h]
+\centering
+\small
+\caption{Deterministic-baseline EU: paper vs.\ our reproduction (Section~\ref{sec:rq1}).}
+\label{tab:baseline}
+\begin{tabular}{@{}llrrr@{}}
+\toprule
+Task & Model & Paper & Ours & $\Delta$\% \\
+\midrule
+LaMP-1 & BM25+Small       & 0.308 & 0.240 & $-$22\% \\
+LaMP-1 & Contr.+Small     & 0.286 & 0.200 & $-$30\% \\
+LaMP-1 & BM25+Base        & 0.670 & 0.695 & $+$4\% \\
+LaMP-1 & Contr.+Base      & 0.637 & 0.641 & $+$1\% \\
+LaMP-4 & BM25+Small       & 0.217 & 0.299 & $+$38\% \\
+LaMP-4 & Contr.+Small     & 0.254 & 0.360 & $+$42\% \\
+LaMP-4 & BM25+Base        & 0.223 & 0.304 & $+$36\% \\
+LaMP-4 & Contr.+Base      & 0.268 & 0.361 & $+$35\% \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \end{document}
