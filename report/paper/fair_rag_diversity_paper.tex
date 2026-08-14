@@ -205,11 +205,12 @@ rerank that displaces much of the top-$k$ still has decent odds of retaining sev
 useful documents, narrowing the deterministic-vs-stochastic utility gap the whole
 fairness/utility trade-off is measured against.
 
-\textbf{Generators on both sides are small and dated.} Flan-T5-Small (77M) and
-Flan-T5-Base (250M) \cite{chung2024scaling} are two to three orders of magnitude
-smaller than production RAG generators ($\geq$3B parameters). This is not only our
-own limitation: the source paper's largest generator, Flan-T5-XXL (11B), is from the
-same 2022-era family, not finetuned beyond LaMP's prompt format, and several
+\textbf{Our own generators are small; the source paper's are dated.} Flan-T5-Small
+(77M) and Flan-T5-Base (250M) \cite{chung2024scaling}, the two we run, are one to two
+orders of magnitude smaller than production RAG generators ($\geq$3B parameters).
+The source paper's own larger generators are a separate limitation, not the same
+one: its largest, Flan-UL2 ($\sim$20B), is not undersized so much as outdated ---
+the same 2022-era family, not finetuned beyond LaMP's prompt format, and several
 generations behind what is typically deployed today. Whether either paper's findings
 persist at production scale is untested by both (see Future Work).
 
@@ -446,13 +447,18 @@ grid is incomplete and only one cell is individually significant.
   \item \textbf{Larger scale, more realistic setup.} Repeat with bigger sample
   counts, industry-standard generators ($\geq$3B parameters, finetuned), and a
   more stable dataset/ground truth less dependent on a single generator's own
-  utility delta for relevance (Section~\ref{sec:threats}) --- both papers'
-  generators are two to three orders of magnitude smaller than what production
-  RAG systems use.
-  \item \textbf{Task-customized diversity/fairness toggles.} RQ2 found the
-  diversity effect is task-specific; tuning PL $\alpha$ and MMR $\lambda$ per
-  task or per information need, rather than sweeping one fixed setting
-  globally, is a promising line of work in its own right.
+  utility delta for relevance (Section~\ref{sec:threats}). Our own generators
+  (77M/250M) are one to two orders of magnitude smaller than even the smallest
+  commonly-deployed production generators; the source paper's largest
+  (Flan-UL2, $\sim$20B) is not undersized so much as outdated --- the same
+  2022-era, non-RAG-finetuned family, several generations behind what is
+  deployed today.
+  \item \textbf{Task-customized diversity/fairness toggles.} The
+  diversity-utility relationship's strength and significance varies across
+  tasks (Section~\ref{sec:rq2}); whether that reflects a genuinely different
+  optimal PL $\alpha$/MMR $\lambda$ per task or information need, rather than
+  one fixed setting swept globally, is an open question we did not test but
+  find promising.
   \item \textbf{Other reranking methods.} Test other hybrid designs beyond
   RandMMR's specific construction, and diversity/fairness methods outside the
   PL/MMR family entirely, e.g.\ xQuAD-style sub-topic coverage.
