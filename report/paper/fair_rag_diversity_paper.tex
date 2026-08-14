@@ -442,46 +442,28 @@ grid is incomplete and only one cell is individually significant.
 \section{Future Work}
 \label{sec:future}
 
-We see four main directions for future work:
-
 \begin{enumerate}[leftmargin=1.1em,itemsep=3pt]
-  \item \textbf{Broader reranking-policy exploration.} RandMMR is one specific
-  design --- PL for rank 1, randomized MMR for the rest --- and other splits of
-  which ranks get which treatment, or an explicit relevance floor blended in, are
-  worth testing against it. More broadly, methods outside the PL/MMR family
-  entirely (e.g.\ xQuAD-style explicit sub-topic coverage) would show whether
-  RandMMR's gain is a property of combining stochasticity with relevance-aware
-  diversity specifically, or something narrower to this one construction. The same
-  search should also respond to RQ2's finding that the diversity effect is
-  task-specific: rather than one fixed PL $\alpha$/MMR $\lambda$ swept globally,
-  toggles customized per task or information need are a natural next step.
-  \item \textbf{Tightening the measurement itself.} Two of our own methodological
-  choices cap how much weight RQ1 and RQ2's numbers can bear. A properly
-  stochastic oracle retriever (multiple sampled optimal permutations, as
-  specified in the paper's Appendix C.3, rather than our single deterministic
-  draw) would tighten the utility-normalization ceiling behind
-  Appendix~\ref{app:baseline}. And RQ2's quintile-comparison design is
-  correlational; a causal mediation analysis that instruments diversity directly,
-  rather than reading it off realized lists, would be a stronger test of whether
-  diversity itself is doing the work.
-  \item \textbf{Testing at a scale and setting closer to deployment.} Both
+  \item \textbf{Other reranking methods.} Test other splits of RandMMR's own
+  design (which ranks get PL vs.\ MMR treatment, or an explicit relevance
+  floor), and diversity/fairness methods outside the PL/MMR family entirely
+  (e.g.\ xQuAD-style sub-topic coverage), against it. Since RQ2 found the
+  diversity effect is task-specific, this should include per-task or
+  per-information-need toggles instead of one fixed PL $\alpha$/MMR $\lambda$
+  swept globally.
+  \item \textbf{A stochastic oracle retriever and a causal test of RQ2.} Our
+  utility-normalization ceiling (Appendix~\ref{app:baseline}) uses a single
+  deterministic oracle draw; the paper's own Appendix C.3 specifies a properly
+  stochastic oracle (multiple sampled optimal permutations) that would tighten
+  it. Separately, RQ2's quintile comparison is correlational; instrumenting
+  diversity directly, rather than reading it off realized lists, would be a
+  stronger causal test of whether diversity itself drives the utility gain.
+  \item \textbf{Deployment-scale replication.} Repeat with production-scale,
+  finetuned generators ($\geq$3B) and SPLADE as a third retriever, since both
   papers' generators are two to three orders of magnitude smaller than what
-  production RAG systems use (Section~\ref{sec:threats}), and our grid also
-  omits SPLADE and holds several parameters, most notably $k{=}5$, fixed at the
-  source paper's reported values. Repeating this study with production-scale,
-  finetuned generators, a third retriever, and a sweep over truncation depth
-  would test whether our findings, and the source paper's, are artifacts of this
-  small-model, small-$k$ regime. A more stable ground truth for fairness-in-RAG
-  evaluation, less dependent on a single generator's own utility delta for
-  relevance (Section~\ref{sec:threats}), would help separate that question from
-  the dataset's own limitations.
-  \item \textbf{Attribution fairness.} The source paper's Figure 5 (NLI-based
-  attribution fairness: whether a generated answer's claims are actually
-  entailed by the fairly-exposed evidence) requires an entailment pipeline we did
-  not build. It asks a complementary question to everything here --- not just
-  whether fair ranking preserves utility, but whether the generated text is
-  actually grounded in what fairness surfaced --- and is a natural extension once
-  RQ1's open discrepancies are resolved.
+  production RAG systems use (Section~\ref{sec:threats}); also sweep
+  truncation depth $k$, held fixed at 5 throughout, and use a ground truth
+  less dependent on a single generator's own utility delta for relevance
+  (Section~\ref{sec:threats}).
 \end{enumerate}
 
 {\small
