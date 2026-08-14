@@ -231,27 +231,28 @@ odds of surfacing several useful documents, which compresses the
 deterministic-vs-stochastic utility gap the whole fairness/utility trade-off is
 measured against, relative to a $<$1\%-relevance TREC-scale setting.
 
-\textbf{Our generators are far smaller than deployed RAG systems.} Flan-T5-Small
-(77M) and Flan-T5-Base (250M) \cite{chung2024scaling} are two to three orders of
-magnitude smaller than generators typically used in production RAG systems
-($\geq$3B parameters, e.g.\ Llama-3-8B- or GPT-4o-mini-class models), which are also
-frequently instruction- or task-finetuned beyond LaMP's own prompt format. Whether
-the fairness/utility relationships we measure --- e.g.\ RQ2's diversity effect ---
-persist at production model scale is untested here (see Future Work).
+\textbf{Generators on both sides are small and dated by industry standards.}
+Flan-T5-Small (77M) and Flan-T5-Base (250M) \cite{chung2024scaling}, the two we run,
+are two to three orders of magnitude smaller than generators typically used in
+production RAG systems ($\geq$3B parameters, e.g.\ Llama-3-8B- or GPT-4o-mini-class
+models). This is not only a limitation of our reduced grid: the source paper's own
+larger generators, up to Flan-T5-XXL (11B), are from the same 2022-era Flan-T5
+family \cite{chung2024scaling} --- still encoder-decoder, not instruction- or
+task-finetuned beyond LaMP's own prompt format, and now several generations behind
+the decoder-only models that dominate deployed RAG. Whether the fairness/utility
+relationships either paper measures --- e.g.\ RQ2's diversity effect here --- persist
+at production model scale and architecture is untested by both (see Future Work).
 
-\textbf{The EE-D/EE-R trade-off is not a per-query guarantee.} PL sampling is
-expected, in aggregate, to trade ranking quality (EE-R) for exposure fairness (lower
-EE-D); at the per-query level we find this is frequently violated. Across all
-completed PL conditions ($\alpha \in \{1,2,4,8\}$, both generators, both retrievers,
-LaMP-1--7), an individual query's PL EE-R exceeds its own deterministic EE-R in
-29.7\% of query-level observations overall --- 37--38\% at $\alpha \in \{1,2,4\}$ and
-8.3\% even at the mildest, near-deterministic $\alpha{=}8$. This mostly washes out in
-expectation: pooling to a macro (task, generator, ranker, $\alpha$) mean, only 14 of
-112 conditions (12.5\%) have PL's mean EE-R exceed deterministic's, and even those are
-small ($\Delta \leq 0.004$) and exclusively at $\alpha{=}8$. We read this as evidence
-that the trade-off is real on average but not mechanically guaranteed on a corpus this
-small and this skewed toward useful documents --- a caution against over-interpreting
-any single query's or single run's fairness/quality numbers.
+\textbf{The EE-D/EE-R trade-off is not a per-query guarantee.} The same small,
+high-relevance-rate corpus (previous point) lets PL's aggregate fairness/quality
+trade-off fail query-by-query even while holding on average: across all completed PL
+conditions ($\alpha \in \{1,2,4,8\}$, both generators, both retrievers, LaMP-1--7),
+an individual query's PL EE-R exceeds its own deterministic EE-R in 29.7\% of
+query-level observations --- 37--38\% at $\alpha \in \{1,2,4\}$, still 8.3\% at the
+mildest, near-deterministic $\alpha{=}8$ --- though this mostly washes out once
+pooled to a macro (task, generator, ranker, $\alpha$) mean (14 of 112 conditions,
+all at $\alpha{=}8$ and $\Delta \leq 0.004$). A caution against over-interpreting any
+single query's or single run's fairness/quality numbers.
 
 \section{Methodology Notes}
 \label{sec:method}
