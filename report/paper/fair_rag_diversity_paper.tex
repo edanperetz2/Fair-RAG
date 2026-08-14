@@ -268,7 +268,7 @@ then plateaus, a clean positive ranking-quality/utility relationship, and a simi
 disparity-interval utility pattern to the paper's own Table 2. Absolute utility scale
 is not directly comparable, since the paper's ceiling is a genuine stochastic oracle
 (multiple sampled optimal permutations) while ours is a single deterministic oracle
-draw (Future Work).
+draw.
 
 Table~\ref{tab:baseline} (Appendix~\ref{app:baseline}) compares our reproduced
 deterministic-baseline EU against the two tasks for which the paper publishes
@@ -443,27 +443,19 @@ grid is incomplete and only one cell is individually significant.
 \label{sec:future}
 
 \begin{enumerate}[leftmargin=1.1em,itemsep=3pt]
-  \item \textbf{Other reranking methods.} Test other splits of RandMMR's own
-  design (which ranks get PL vs.\ MMR treatment, or an explicit relevance
-  floor), and diversity/fairness methods outside the PL/MMR family entirely
-  (e.g.\ xQuAD-style sub-topic coverage), against it. Since RQ2 found the
-  diversity effect is task-specific, this should include per-task or
-  per-information-need toggles instead of one fixed PL $\alpha$/MMR $\lambda$
-  swept globally.
-  \item \textbf{A stochastic oracle retriever and a causal test of RQ2.} Our
-  utility-normalization ceiling (Appendix~\ref{app:baseline}) uses a single
-  deterministic oracle draw; the paper's own Appendix C.3 specifies a properly
-  stochastic oracle (multiple sampled optimal permutations) that would tighten
-  it. Separately, RQ2's quintile comparison is correlational; instrumenting
-  diversity directly, rather than reading it off realized lists, would be a
-  stronger causal test of whether diversity itself drives the utility gain.
-  \item \textbf{Deployment-scale replication.} Repeat with production-scale,
-  finetuned generators ($\geq$3B) and SPLADE as a third retriever, since both
-  papers' generators are two to three orders of magnitude smaller than what
-  production RAG systems use (Section~\ref{sec:threats}); also sweep
-  truncation depth $k$, held fixed at 5 throughout, and use a ground truth
-  less dependent on a single generator's own utility delta for relevance
-  (Section~\ref{sec:threats}).
+  \item \textbf{Larger scale, more realistic setup.} Repeat with bigger sample
+  counts, industry-standard generators ($\geq$3B parameters, finetuned), and a
+  more stable dataset/ground truth less dependent on a single generator's own
+  utility delta for relevance (Section~\ref{sec:threats}) --- both papers'
+  generators are two to three orders of magnitude smaller than what production
+  RAG systems use.
+  \item \textbf{Task-customized diversity/fairness toggles.} RQ2 found the
+  diversity effect is task-specific; tuning PL $\alpha$ and MMR $\lambda$ per
+  task or per information need, rather than sweeping one fixed setting
+  globally, is a promising line of work in its own right.
+  \item \textbf{Other reranking methods.} Test other hybrid designs beyond
+  RandMMR's specific construction, and diversity/fairness methods outside the
+  PL/MMR family entirely, e.g.\ xQuAD-style sub-topic coverage.
 \end{enumerate}
 
 {\small
