@@ -442,29 +442,46 @@ grid is incomplete and only one cell is individually significant.
 \section{Future Work}
 \label{sec:future}
 
-\begin{enumerate}[leftmargin=1.1em,itemsep=1pt]
-  \item Explore other hybrid reranking policies beyond RandMMR's specific design, and
-  other diversity/fairness methods entirely (e.g.\ xQuAD-style sub-topic coverage), as
-  further points of comparison to MMR and PL.
-  \item Complete the RandMMR grid with larger sample counts, especially the
-  under-powered Flan-T5-Small cells (Section~\ref{sec:rq3}).
-  \item Acquire or construct a more stable ground truth for fairness-in-RAG
-  evaluation, less dependent on a single generator's utility delta (Section~\ref{sec:threats}).
-  \item Repeat with stronger, production-scale generators ($\geq$3B, often
-  finetuned) and SPLADE as a third retriever, and sweep other parameters held fixed
-  at the paper's reported values (most notably $k{=}5$), to test whether our
-  findings are small-model/small-grid/small-$k$ artifacts.
-  \item A properly stochastic oracle retriever (Appendix C.3 of
-  \cite{eunkim2025fairrag}) would tighten Appendix~\ref{app:baseline}'s
-  normalization ceiling; a causal mediation analysis instrumenting diversity
-  directly would be a stronger test of RQ2 than the correlational design used here.
-  \item The paper's Figure 5 (NLI-based attribution fairness) requires an entailment
-  pipeline we did not build and is a natural extension once RQ1's discrepancies are
-  resolved.
-  \item Tackle optimization of diversity/fairness toggles (PL $\alpha$, MMR
-  $\lambda$) customized per task or information need, rather than one fixed setting
-  swept globally --- directly motivated by RQ2's finding that the effect is
-  task-specific.
+We see four main directions for future work:
+
+\begin{enumerate}[leftmargin=1.1em,itemsep=3pt]
+  \item \textbf{Broader reranking-policy exploration.} RandMMR is one specific
+  design --- PL for rank 1, randomized MMR for the rest --- and other splits of
+  which ranks get which treatment, or an explicit relevance floor blended in, are
+  worth testing against it. More broadly, methods outside the PL/MMR family
+  entirely (e.g.\ xQuAD-style explicit sub-topic coverage) would show whether
+  RandMMR's gain is a property of combining stochasticity with relevance-aware
+  diversity specifically, or something narrower to this one construction. The same
+  search should also respond to RQ2's finding that the diversity effect is
+  task-specific: rather than one fixed PL $\alpha$/MMR $\lambda$ swept globally,
+  toggles customized per task or information need are a natural next step.
+  \item \textbf{Tightening the measurement itself.} Two of our own methodological
+  choices cap how much weight RQ1 and RQ2's numbers can bear. A properly
+  stochastic oracle retriever (multiple sampled optimal permutations, as
+  specified in the paper's Appendix C.3, rather than our single deterministic
+  draw) would tighten the utility-normalization ceiling behind
+  Appendix~\ref{app:baseline}. And RQ2's quintile-comparison design is
+  correlational; a causal mediation analysis that instruments diversity directly,
+  rather than reading it off realized lists, would be a stronger test of whether
+  diversity itself is doing the work.
+  \item \textbf{Testing at a scale and setting closer to deployment.} Both
+  papers' generators are two to three orders of magnitude smaller than what
+  production RAG systems use (Section~\ref{sec:threats}), and our grid also
+  omits SPLADE and holds several parameters, most notably $k{=}5$, fixed at the
+  source paper's reported values. Repeating this study with production-scale,
+  finetuned generators, a third retriever, and a sweep over truncation depth
+  would test whether our findings, and the source paper's, are artifacts of this
+  small-model, small-$k$ regime. A more stable ground truth for fairness-in-RAG
+  evaluation, less dependent on a single generator's own utility delta for
+  relevance (Section~\ref{sec:threats}), would help separate that question from
+  the dataset's own limitations.
+  \item \textbf{Attribution fairness.} The source paper's Figure 5 (NLI-based
+  attribution fairness: whether a generated answer's claims are actually
+  entailed by the fairly-exposed evidence) requires an entailment pipeline we did
+  not build. It asks a complementary question to everything here --- not just
+  whether fair ranking preserves utility, but whether the generated text is
+  actually grounded in what fairness surfaced --- and is a natural extension once
+  RQ1's open discrepancies are resolved.
 \end{enumerate}
 
 {\small
@@ -520,6 +537,7 @@ R.\ D.\ Luce.
 \end{thebibliography}
 }
 
+\clearpage
 \appendix
 \section{Deterministic-Baseline EU Detail}
 \label{app:baseline}
