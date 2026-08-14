@@ -444,24 +444,33 @@ grid is incomplete and only one cell is individually significant.
 \label{sec:future}
 
 \begin{enumerate}[leftmargin=1.1em,itemsep=3pt]
-  \item \textbf{Larger scale, more realistic setup.} Repeat with bigger sample
-  counts, industry-standard generators ($\geq$3B parameters, finetuned), and a
-  more stable dataset/ground truth less dependent on a single generator's own
-  utility delta for relevance (Section~\ref{sec:threats}). Our own generators
-  (77M/250M) are one to two orders of magnitude smaller than even the smallest
-  commonly-deployed production generators; the source paper's largest
-  (Flan-UL2, $\sim$20B) is not undersized so much as outdated --- the same
-  2022-era, non-RAG-finetuned family, several generations behind what is
-  deployed today.
-  \item \textbf{Task-customized diversity/fairness toggles.} The
-  diversity-utility relationship's strength and significance varies across
-  tasks (Section~\ref{sec:rq2}); whether that reflects a genuinely different
-  optimal PL $\alpha$/MMR $\lambda$ per task or information need, rather than
-  one fixed setting swept globally, is an open question we did not test but
-  find promising.
-  \item \textbf{Other reranking methods.} Test other hybrid designs beyond
-  RandMMR's specific construction, and diversity/fairness methods outside the
-  PL/MMR family entirely, e.g.\ xQuAD-style sub-topic coverage.
+  \item \textbf{Scale and realism.} Nearly every number in this paper comes
+  from a setup chosen for what we could afford, not what is representative:
+  small sample counts, generators far below production scale, and a ground
+  truth that depends on those same small generators' own judgments
+  (Section~\ref{sec:threats}). Our own Flan-T5 models (77M/250M) are one to two
+  orders of magnitude smaller than even the smallest generators commonly
+  deployed in production; the source paper's largest, Flan-UL2 ($\sim$20B), is
+  not undersized in the same way, but it is old --- the same 2022-era,
+  non-RAG-finetuned family, several generations behind what is typically
+  deployed today. A repeat at industry scale, with bigger sample counts and a
+  dataset whose relevance labels do not depend on a single generator's own
+  utility delta, would show how much of RQ1--RQ3 survives outside this regime.
+  \item \textbf{Per-task tuning.} RQ2's diversity-utility relationship is
+  uneven across tasks: significant for MMR in some, absent in others, and we
+  never asked whether that unevenness is something a fixed policy could
+  correct for. If the useful diversity range genuinely differs by task or
+  information need, tuning PL $\alpha$ or MMR $\lambda$ per task, rather than
+  sweeping one global setting, might recover benefit where a fixed setting
+  currently misses it. We did not test this; we only observed the unevenness
+  that makes it worth testing.
+  \item \textbf{Other reranking designs.} RandMMR is one specific point in a
+  larger design space --- PL sampling for exactly the top rank, MMR for
+  everything after it. Comparing it against other splits of that same idea,
+  and against diversity/fairness methods outside the PL/MMR family entirely
+  (e.g.\ xQuAD-style sub-topic coverage), would show whether its gain comes
+  from combining stochasticity with relevance-aware diversity specifically, or
+  would show up under any reasonable hybrid.
 \end{enumerate}
 
 {\small
