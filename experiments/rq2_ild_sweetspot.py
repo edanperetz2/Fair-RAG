@@ -30,8 +30,9 @@ sys.path.insert(0, ROOT)
 os.chdir(ROOT)
 
 from framework import build_query_metric_rows, list_run_dirs
-from analysis import select_consistent_precision, normalize_query_rows
+from analysis import select_consistent_precision, select_best_precision
 from analysis.loading import select_full_coverage_runs
+from analysis.with_gold_normalization import normalize_query_rows_with_gold
 
 FIG_DIR = os.path.join(ROOT, "report", "figures")
 TABLE_DIR = os.path.join(ROOT, "report", "tables")
@@ -47,15 +48,27 @@ plt.rcParams.update({
 GENERATORS = ["flanT5Small", "flanT5Base"]
 RANKERS = ["bm25", "contriever"]
 PL_ALPHAS = [1.0, 2.0, 4.0, 8.0]
-MMR_LAMBDAS = [0.15, 0.3, 0.45, 0.55, 0.7, 0.85]
+MMR_LAMBDAS = [0.3, 0.45, 0.55, 0.7, 0.85]  # excludes 0.15: too diversity-heavy to land in Q1, mostly just noise there
 N_BINS = 5
 METHOD_STYLE = {"mmr": ("#2A9D8F", "o", "MMR"), "pl": ("#E76F51", "^", "PL")}
 
 print("Loading run data...")
 run_dirs = list_run_dirs()
-raw_df = pd.DataFrame(build_query_metric_rows(run_dirs))
-raw_df = select_full_coverage_runs(raw_df)
-raw_df = raw_df[raw_df["generator_name"].isin(GENERATORS) & raw_df["ranker"].isin(RANKERS)]
+all_rows_df = pd.DataFrame(build_query_metric_rows(run_dirs))
+all_rows_df = select_full_coverage_runs(all_rows_df)
+# A handful of LaMP-1/LaMP-4 settings have a stray seed=43 duplicate run
+# alongside the canonical seed=42 one; select_consistent_precision/select_best_precision
+# pool by N but don't dedupe across seeds, so leaving both in would silently
+# double-count those settings' queries. seed=42 is the project standard
+# everywhere else, so pin to it explicitly.
+all_rows_df = all_rows_df[all_rows_df["seed"] == 42]
+
+# Full-precision frame (incl. the gold ranker) used only to build each cell's
+# with-gold EU ceiling - independent of whatever N-pooling the comparison data
+# below uses, matching how experiments/table4_with_gold.py sources ceilings.
+ceiling_source_df = select_best_precision(all_rows_df.copy())
+
+raw_df = all_rows_df[all_rows_df["generator_name"].isin(GENERATORS) & all_rows_df["ranker"].isin(RANKERS)]
 raw_df = raw_df[
     (raw_df["rerank_method"] == "deterministic")
     | ((raw_df["rerank_method"] == "pl") & (raw_df["pl_alpha"].isin(PL_ALPHAS)))
@@ -63,7 +76,8 @@ raw_df = raw_df[
 ].copy()
 raw_df = select_consistent_precision(raw_df, group_cols=["lamp_num"], setting_cols=["generator_name", "ranker", "pl_alpha"])
 
-qn = normalize_query_rows(raw_df)
+cells = raw_df[["lamp_num", "generator_name", "ranker"]].drop_duplicates().itertuples(index=False, name=None)
+qn = normalize_query_rows_with_gold(raw_df, ceiling_source_df, cells=list(cells))
 qn["expected_utility_norm"] = pd.to_numeric(qn["expected_utility_norm"], errors="coerce")
 qn["avg_ild_jaccard_norm"] = pd.to_numeric(qn["avg_ild_jaccard_norm"], errors="coerce")
 TASKS = sorted(qn["lamp_num"].dropna().unique())

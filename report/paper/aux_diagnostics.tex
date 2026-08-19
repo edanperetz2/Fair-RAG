@@ -1,0 +1,860 @@
+\documentclass[10pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{amsmath}
+\usepackage{array}
+\usepackage{placeins}
+\usepackage{hyperref}
+\usepackage{graphicx}
+
+\title{Auxiliary Diagnostics: Binning-Methodology Sensitivity\\and Cross-View Reconciliation}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\noindent\textbf{This is a working diagnostic document, not part of the paper.} It
+answers four specific questions raised while reviewing the current draft: (1) why
+do two cells show \texttt{n/a} across all four ILD quartiles in the paper's Table
+2/6, and is the quartile-binning mechanism itself the problem; (2) do the paper's
+Table 4 EE-D-interval utility results and its Table 2 ILD-quartile utility results
+actually agree, given both are supposed to reflect the same underlying
+fairness/diversity/utility relationship; (3) does the ``MMR beats PL'' pattern in
+the paper's Table 2/6/Figure 2 hold
+up against the raw, unconditional per-setting utility table
+(\texttt{eu\_norm\_by\_setting\_wide.csv}); and (4) pooling across every dataset,
+ranker, and model, is there an actual trend where more diversity buys more utility,
+and what does the full per-setting $\Delta$EU$_{\text{norm}}$ table look like. All
+four are investigated directly on the with-gold-normalized data (current paper
+methodology) rather than assumed. \textbf{Notation:} every $\Delta$EU$_{\text{norm}}$
+figure in this document uses the same convention as the main paper --- no stars
+means not significant ($p\geq0.05$, Welch's $t$-test vs.\ deterministic),
+$^*p{<}0.05$, $^{**}p{<}0.01$.
+
+\section{Quartile Binning: Is the Mechanism the Problem?}
+\label{sec:quartile}
+
+Table~\ref{tab:quartile-methods} compares three ways of computing the ILD$_{\text{norm}}$
+quartile cut-points used for MMR's Q1--Q4 bins, on the two cells that currently show
+\texttt{n/a} (LaMP-2/Base+Small/Contriever) plus two cells that work fine under the
+current method, for contrast. All four quartiles are shown, not just Q1 --- Q1 is
+the bin the paper's own claims hinge on, but a check of whether the \emph{mechanism}
+is sound needs to see the whole distribution, not just the one slice we already
+report.
+
+\begin{description}
+  \item[(A) Current --- cell-pooled:] quantile cut-points computed from that one
+    (task, generator, ranker, method) cell's own pooled rows. This is what Table 2/6
+    uses today.
+  \item[(B) Dataset-wide:] \emph{one} global set of quantile cut-points, computed by
+    pooling every MMR row across all 7 tasks $\times$ 4 cells together, then applied
+    uniformly to every cell.
+  \item[(C) Query-specific (rank-based):] within each query, rank that query's own
+    $N$ MMR-$\lambda$ draws by ILD (percentile rank in $[0,1]$), then bin those
+    \emph{ranks} globally at fixed $0/.25/.5/.75/1$ cuts. This never compares raw
+    ILD values across different queries for bin assignment, so it cannot suffer the
+    same cross-query tie-collision that breaks (A).
+\end{description}
+
+\textbf{Only (A) actually produces quartiles.} ``Quartile'' means equal-population
+bins by definition, and only (A) delivers that, because its cut-points are fit to
+each cell's own data (LaMP-4/Base/BM25: 1035/1034/1032/1034 --- as even as tie
+handling allows). (B) applies cut-points fit to the \emph{global pooled} population
+to each individual cell; if that cell's own distribution sits somewhere different
+from the global one (common, since ILD scale varies a lot by task/generator/ranker),
+the same fixed boundaries slice it very unevenly. (C) avoids that specific problem
+but introduces its own: ties (Section~\ref{sec:quartile}'s root-cause discussion)
+push many rows to the same middle rank, swelling Q2/Q3 and starving Q1/Q4. We
+measured this directly across all 56 rows of each alternative (Section~\ref{sec:full-tables}):
+the ratio between a row's largest and smallest bin averages $15\times$ under (B)
+(worst case $200\times$, median $3.5\times$) and $2.8\times$ under (C) (worst case
+$32\times$, median $1.1\times$ --- closer to balanced typically, but with a long
+tail of bad cases). \textbf{Neither (B) nor (C) is a valid drop-in replacement for
+``quartiles'' as a result} --- both are better read as alternative four-bin
+schemes that happen to share the Q1--Q4 label, not as different ways of computing
+the same underlying quantity. The Q1/Q4 columns below for (B) and (C) should be
+read with that in mind, not as ``the least/most diversified quarter of this cell's
+queries'' the way (A)'s columns can be.
+
+\begin{table}[h]
+\centering
+\scriptsize
+\begin{tabular}{@{}llllll@{}}
+\toprule
+Cell & Method & Q1 & Q2 & Q3 & Q4 \\
+\midrule
+\multirow{3}{*}{LaMP-2/Base/Contr.} & (A) cell-pooled & \multicolumn{4}{c}{degenerate: 3 bins instead of 4} \\
+ & (B) dataset-wide & $n{=}5$, $+0.093$ & $n{=}152$, $-0.011$ & $n{=}494$, $+0.029$ & $n{=}749$, $+0.019$ \\
+ & (C) query-rank & $n{=}18$, $+0.137$ & $n{=}444$, $+0.008$ & $n{=}723$, $+0.030$ & $n{=}215$, $-0.005$ \\
+\cmidrule(lr){1-6}
+\multirow{3}{*}{LaMP-2/Small/Contr.} & (A) cell-pooled & \multicolumn{4}{c}{degenerate: 3 bins instead of 4} \\
+ & (B) dataset-wide & $n{=}3$, $-0.375$ & $n{=}88$, $-0.057$ & $n{=}239$, $-0.053$ & $n{=}446$, $+0.031$ \\
+ & (C) query-rank & $n{=}11$, $-0.102$ & $n{=}184$, $-0.098^{*}$ & $n{=}452$, $+0.048$ & $n{=}129$, $-0.057$ \\
+\cmidrule(lr){1-6}
+\multirow{3}{*}{LaMP-4/Base/BM25} & (A) cell-pooled & $n{=}1035$, $+0.003$ & $n{=}1034$, $+0.021$ & $n{=}1032$, $-0.006$ & $n{=}1034$, $-0.005$ \\
+ & (B) dataset-wide & $n{=}628$, $+0.022$ & $n{=}1298$, $+0.014$ & $n{=}1297$, $-0.016$ & $n{=}912$, $+0.003$ \\
+ & (C) query-rank & $n{=}128$, $+0.001$ & $n{=}1389$, $-0.002$ & $n{=}1850$, $+0.007$ & $n{=}768$, $+0.004$ \\
+\cmidrule(lr){1-6}
+\multirow{3}{*}{LaMP-7/Base/Contr.} & (A) cell-pooled & $n{=}265$, $-0.001$ & $n{=}263$, $-0.043$ & $n{=}263$, $-0.007$ & $n{=}264$, $+0.035$ \\
+ & (B) dataset-wide & $n{=}81$, $+0.077^{*}$ & $n{=}218$, $-0.026$ & $n{=}266$, $-0.028$ & $n{=}490$, $+0.005$ \\
+ & (C) query-rank & $n{=}37$, $+0.066$ & $n{=}313$, $-0.013$ & $n{=}504$, $-0.000$ & $n{=}201$, $-0.012$ \\
+\bottomrule
+\end{tabular}
+\caption{$\Delta$EU$_{\text{norm}}$ vs.\ deterministic, all four quartiles, MMR
+only. Full numbers in \texttt{aux\_quartile\_method\_comparison\_full.csv}.}
+\label{tab:quartile-methods}
+\end{table}
+
+\textbf{None of the three is a clean fix.} (A) fails outright on the two problem
+cells --- across \emph{all four} bins, not just Q1, since it's one 3-way split for
+the whole cell. (B)'s imbalance is visible directly in this table: the two problem
+cells' Q1 drops to $n{=}3$--$5$ (too few to mean anything) while their Q4 sits at
+$446$--$749$, and even an already-working cell (LaMP-7) sees its Q1 sample size
+collapse from 265 (under A) to 81 while flipping from non-significant to nominally
+significant ($p{<}0.05$) --- more a warning sign than an improvement. (C)'s
+imbalance is visible too but milder for these 4 cells (LaMP-4: 1035 $\to$ 128 in
+Q1, but Q2/Q3 swell to 1389/1850); it also surfaces one new result the Q1-only view
+hid entirely: LaMP-2/Small/Contriever's Q2 is significantly \emph{negative} under
+(C) ($n{=}184$, $-0.098^{*}$) --- a real finding this cell has, just not in the bin
+the paper currently reports, though per the caveat above this ``Q2'' is not a clean
+second-quarter-of-the-data the way Table 2/6's own Q2 is.
+
+\paragraph{Root cause.} We checked directly how often a single query's own 5
+MMR-$\lambda$ draws (0.3--0.85) produce the \emph{exact same} ILD$_{\text{norm}}$
+value for all five: \textbf{46.4\% of LaMP-2/Base/Contriever's queries} and
+\textbf{35.3\% of LaMP-4/Base/BM25's queries} (a cell that otherwise works fine)
+have all five $\lambda$ settings tied. MMR's greedy selection is simply insensitive
+to $\lambda$ for a large share of queries --- plausibly because the candidate pool
+is small or homogeneous enough that the top-$k$ selection saturates regardless of
+the relevance/diversity weighting. This is the same underlying property driving all
+three failure modes above: (A) collapses when ties concentrate at the per-query
+ceiling; (B) is fragile to any one cell's ILD scale differing from the global pool;
+(C) loses samples to within-query ties landing at a tied, non-extreme rank. The
+quartile mechanism is a symptom, not an independent bug --- switching binning
+strategy relocates the problem rather than resolving it. LaMP-2/Contriever is simply
+the most extreme instance of a tie rate that is high (30--45\%) across most
+MMR cells to begin with.
+
+\FloatBarrier
+\subsection{Full Table 6 Recreation Under Each Alternative}
+\label{sec:full-tables}
+
+For completeness, Tables~\ref{tab:table6-B} and~\ref{tab:table6-C} recreate Table 6
+in full (all 7 tasks $\times$ 4 cells $\times$ \{PL, MMR\}) under (B) and (C)
+respectively, row-for-row comparable with the published Table 6 (method A). Given
+the caveat above, \textbf{these are not alternative quartile tables so much as
+alternative four-bin tables} --- read the bin boundaries and $n$ alongside the
+$\Delta$EU$_{\text{norm}}$ figures, not just the significance stars, since a
+``significant'' result in a 5-row bin means something different from one in a
+749-row bin. Top-line counts across all 112 method-rows (56 cells $\times$ 2
+methods): method A (published Table 6) has 2 fully degenerate rows and (by its own
+significance counts already in the paper) a moderate number of significant bin
+results; (B) has \emph{zero} fully degenerate rows but 43 significant bin results
+across wildly uneven bins (see imbalance figures above); (C) has \emph{six} fully
+degenerate rows --- more than (A), not fewer, just a \emph{different} six (it fixes
+LaMP-2/Small/Contriever/MMR but breaks LaMP-2/Base/BM25/MMR, LaMP-4/Small/BM25/MMR,
+and three LaMP-7 cells) --- plus 33 significant bin results. Switching mechanism
+does not reduce the failure count; it relocates which specific cells fail.
+
+\begin{table}[p]
+\centering
+\tiny
+\begin{tabular}{@{}lllrlrrrr@{}}
+\toprule
+Task & Gen. & Ranker & Base & Method & Q1 & Q2 & Q3 & Q4 \\
+\midrule
+\multirow{2}{*}{LaMP-1} & \multirow{2}{*}{T5-Base} & \multirow{2}{*}{BM25} & \multirow{2}{*}{0.681} & PL & [-0.00,0.95] $-0.037$ & [0.95,0.98] $-0.090*$ & [0.98,0.99] $-0.129**$ & [0.99,1.00] $-0.162**$ \\
+ &  &  &  & MMR & [-0.00,0.95] $+0.030$ & [0.95,0.98] $+0.037$ & [0.98,0.99] $-0.041$ & [0.99,1.00] $-0.061$ \\
+\cmidrule(lr){1-9}
+ & \multirow{2}{*}{T5-Base} & \multirow{2}{*}{Contr.} & \multirow{2}{*}{0.642} & PL & [-0.00,0.95] $-0.011$ & [0.95,0.98] $-0.063$ & [0.98,0.99] $-0.024$ & [0.99,1.00] $-0.110*$ \\
+ &  &  &  & MMR & [-0.00,0.95] $+0.033$ & [0.95,0.98] $-0.003$ & [0.98,0.99] $+0.028$ & [0.99,1.00] $-0.055$ \\
+\cmidrule(lr){1-9}
+ & \multirow{2}{*}{T5-Small} & \multirow{2}{*}{BM25} & \multirow{2}{*}{0.451} & PL & [-0.00,0.95] $-0.159$ & [0.95,0.98] $+0.027$ & [0.98,0.99] $+0.051$ & [0.99,1.00] $-0.105$ \\
+ &  &  &  & MMR & [-0.00,0.95] $-0.176$ & [0.95,0.98] $+0.040$ & [0.98,0.99] $-0.004$ & [0.99,1.00] $-0.024$ \\
+\cmidrule(lr){1-9}
+ & \multirow{2}{*}{T5-Small} & \multirow{2}{*}{Contr.} & \multirow{2}{*}{0.431} & PL & [-0.00,0.95] $-0.095$ & [0.95,0.98] $-0.039$ & [0.98,0.99] $+0.033$ & [0.99,1.00] $+0.033$ \\
+ &  &  &  & MMR & [-0.00,0.95] $-0.168$ & [0.95,0.98] $+0.080$ & [0.98,0.99] $-0.013$ & [0.99,1.00] $+0.036$ \\
+\midrule
+\multirow{2}{*}{LaMP-2} & \multirow{2}{*}{T5-Base} & \multirow{2}{*}{BM25} & \multirow{2}{*}{0.300} & PL & [-0.00,0.95] $-0.024$ & [0.95,0.98] $+0.017$ & [0.98,0.99] $-0.017$ & [0.99,1.00] $+0.082*$ \\
+ &  &  &  & MMR & [-0.00,0.95] $+0.043$ & [0.95,0.98] $+0.024$ & [0.98,0.99] $-0.053$ & [0.99,1.00] $+0.051$ \\
+\cmidrule(lr){1-9}
+ & \multirow{2}{*}{T5-Base} & \multirow{2}{*}{Contr.} & \multirow{2}{*}{0.307} & PL & [-0.00,0.95] $-0.032$ & [0.95,0.98] $+0.015$ & [0.98,0.99] $+0.002$ & [0.99,1.00] $+0.031$ \\
+ &  &  &  & MMR & [-0.00,0.95] $+0.093$ & [0.95,0.98] $-0.011$ & [0.98,0.99] $+0.029$ & [0.99,1.00] $+0.019$ \\
+\cmidrule(lr){1-9}
+ & \multirow{2}{*}{T5-Small} & \multirow{2}{*}{BM25} & \multirow{2}{*}{0.333} & PL & [-0.00,0.95] $-0.158$ & [0.95,0.98] $-0.032$ & [0.98,0.99] $-0.037$ & [0.99,1.00] $+0.105*$ \\
+ &  &  &  & MMR & [-0.00,0.95] $-0.167$ & [0.95,0.98] $-0.094*$ & [0.98,0.99] $+0.042$ & [0.99,1.00] $+0.070$ \\
+\cmidrule(lr){1-9}
+ & \multirow{2}{*}{T5-Small} & \multirow{2}{*}{Contr.} & \multirow{2}{*}{0.375} & PL & [-0.00,0.95] $-0.375$ & [0.95,0.98] $-0.006$ & [0.98,0.99] $-0.020$ & [0.99,1.00] $+0.013$ \\
+ &  &  &  & MMR & [-0.00,0.95] $-0.375$ & [0.95,0.98] $-0.057$ & [0.98,0.99] $-0.053$ & [0.99,1.00] $+0.031$ \\
+\midrule
+\multirow{2}{*}{LaMP-3} & \multirow{2}{*}{T5-Base} & \multirow{2}{*}{BM25} & \multirow{2}{*}{0.923} & PL & [-0.00,0.95] $+0.004$ & [0.95,0.98] $-0.000$ & [0.98,0.99] $-0.002$ & [0.99,1.00] $+0.005$ \\
+ &  &  &  & MMR & [-0.00,0.95] $+0.001$ & [0.95,0.98] $+0.004$ & [0.98,0.99] $-0.008$ & [0.99,1.00] $+0.001$ \\
+\cmidrule(lr){1-9}
+ & \multirow{2}{*}{T5-Base} & \multirow{2}{*}{Contr.} & \multirow{2}{*}{0.927} & PL & [-0.00,0.95] $-0.002$ & [0.95,0.98] $+0.002$ & [0.98,0.99] $-0.005$ & [0.99,1.00] $+0.003$ \\
+ &  &  &  & MMR & [-0.00,0.95] $+0.009$ & [0.95,0.98] $+0.008$ & [0.98,0.99] $-0.009$ & [0.99,1.00] $+0.008$ \\
+\cmidrule(lr){1-9}
+ & \multirow{2}{*}{T5-Small} & \multirow{2}{*}{BM25} & \multirow{2}{*}{0.908} & PL & [-0.00,0.95] $-0.004$ & [0.95,0.98] $-0.014$ & [0.98,0.99] $-0.017$ & [0.99,1.00] $-0.027*$ \\
+ &  &  &  & MMR & [-0.00,0.95] $-0.014$ & [0.95,0.98] $-0.010$ & [0.98,0.99] $-0.002$ & [0.99,1.00] $-0.028$ \\
+\cmidrule(lr){1-9}
+ & \multirow{2}{*}{T5-Small} & \multirow{2}{*}{Contr.} & \multirow{2}{*}{0.897} & PL & [-0.00,0.95] $+0.009$ & [0.95,0.98] $-0.002$ & [0.98,0.99] $-0.012$ & [0.99,1.00] $-0.004$ \\
+ &  &  &  & MMR & [-0.00,0.95] $+0.011$ & [0.95,0.98] $+0.006$ & [0.98,0.99] $-0.013$ & [0.99,1.00] $-0.012$ \\
+\midrule
+\multirow{2}{*}{LaMP-4} & \multirow{2}{*}{T5-Base} & \multirow{2}{*}{BM25} & \multirow{2}{*}{0.291} & PL & [-0.00,0.95] $-0.004$ & [0.95,0.98] $-0.023$ & [0.98,0.99] $-0.034**$ & [0.99,1.00] $-0.023$ \\
+ &  &  &  & MMR & [-0.00,0.95] $+0.022$ & [0.95,0.98] $+0.014$ & [0.98,0.99] $-0.016$ & [0.99,1.00] $+0.003$ \\
+\cmidrule(lr){1-9}
+ & \multirow{2}{*}{T5-Base} & \multirow{2}{*}{Contr.} & \multirow{2}{*}{0.340} & PL & [-0.00,0.95] $+0.027$ & [0.95,0.98] $-0.042**$ & [0.98,0.99] $-0.055**$ & [0.99,1.00] $-0.073**$ \\
+ &  &  &  & MMR & [-0.00,0.95] $+0.026$ & [0.95,0.98] $+0.033*$ & [0.98,0.99] $-0.014$ & [0.99,1.00] $-0.022$ \\
+\cmidrule(lr){1-9}
+ & \multirow{2}{*}{T5-Small} & \multirow{2}{*}{BM25} & \multirow{2}{*}{0.297} & PL & [-0.00,0.95] $+0.003$ & [0.95,0.98] $-0.020$ & [0.98,0.99] $-0.011$ & [0.99,1.00] $+0.000$ \\
+ &  &  &  & MMR & [-0.00,0.95] $+0.056**$ & [0.95,0.98] $-0.013$ & [0.98,0.99] $-0.020$ & [0.99,1.00] $+0.024$ \\
+\cmidrule(lr){1-9}
+ & \multirow{2}{*}{T5-Small} & \multirow{2}{*}{Contr.} & \multirow{2}{*}{0.326} & PL & [-0.00,0.95] $+0.041*$ & [0.95,0.98] $-0.033*$ & [0.98,0.99] $-0.050**$ & [0.99,1.00] $-0.045**$ \\
+ &  &  &  & MMR & [-0.00,0.95] $+0.055**$ & [0.95,0.98] $+0.003$ & [0.98,0.99] $+0.004$ & [0.99,1.00] $-0.027*$ \\
+\midrule
+\multirow{2}{*}{LaMP-5} & \multirow{2}{*}{T5-Base} & \multirow{2}{*}{BM25} & \multirow{2}{*}{0.531} & PL & [-0.00,0.95] $-0.020$ & [0.95,0.98] $+0.006$ & [0.98,0.99] $-0.003$ & [0.99,1.00] $+0.013$ \\
+ &  &  &  & MMR & [-0.00,0.95] $-0.029$ & [0.95,0.98] $+0.020$ & [0.98,0.99] $+0.031$ & [0.99,1.00] $+0.024$ \\
+\cmidrule(lr){1-9}
+ & \multirow{2}{*}{T5-Base} & \multirow{2}{*}{Contr.} & \multirow{2}{*}{0.550} & PL & [-0.00,0.95] $-0.012$ & [0.95,0.98] $-0.019$ & [0.98,0.99] $-0.025$ & [0.99,1.00] $-0.002$ \\
+ &  &  &  & MMR & [-0.00,0.95] $-0.028$ & [0.95,0.98] $-0.016$ & [0.98,0.99] $+0.032$ & [0.99,1.00] $+0.031$ \\
+\cmidrule(lr){1-9}
+ & \multirow{2}{*}{T5-Small} & \multirow{2}{*}{BM25} & \multirow{2}{*}{0.458} & PL & [-0.00,0.95] $+0.003$ & [0.95,0.98] $-0.032$ & [0.98,0.99] $+0.001$ & [0.99,1.00] $-0.041**$ \\
+ &  &  &  & MMR & [-0.00,0.95] $+0.027$ & [0.95,0.98] $-0.029$ & [0.98,0.99] $+0.014$ & [0.99,1.00] $+0.034$ \\
+\cmidrule(lr){1-9}
+ & \multirow{2}{*}{T5-Small} & \multirow{2}{*}{Contr.} & \multirow{2}{*}{0.465} & PL & [-0.00,0.95] $+0.008$ & [0.95,0.98] $-0.051**$ & [0.98,0.99] $-0.019$ & [0.99,1.00] $-0.049**$ \\
+ &  &  &  & MMR & [-0.00,0.95] $-0.000$ & [0.95,0.98] $-0.032$ & [0.98,0.99] $-0.003$ & [0.99,1.00] $+0.012$ \\
+\midrule
+\multirow{2}{*}{LaMP-6} & \multirow{2}{*}{T5-Base} & \multirow{2}{*}{BM25} & \multirow{2}{*}{0.473} & PL & [-0.00,0.95] $-0.032*$ & [0.95,0.98] $-0.080**$ & [0.98,0.99] $-0.055*$ & [0.99,1.00] $-0.029$ \\
+ &  &  &  & MMR & [-0.00,0.95] $+0.010$ & [0.95,0.98] $-0.014$ & [0.98,0.99] $-0.049*$ & [0.99,1.00] $-0.027$ \\
+\cmidrule(lr){1-9}
+ & \multirow{2}{*}{T5-Base} & \multirow{2}{*}{Contr.} & \multirow{2}{*}{0.444} & PL & [-0.00,0.95] $-0.031*$ & [0.95,0.98] $-0.049*$ & [0.98,0.99] $-0.014$ & [0.99,1.00] $+0.074**$ \\
+ &  &  &  & MMR & [-0.00,0.95] $-0.018$ & [0.95,0.98] $+0.002$ & [0.98,0.99] $-0.026$ & [0.99,1.00] $+0.032$ \\
+\cmidrule(lr){1-9}
+ & \multirow{2}{*}{T5-Small} & \multirow{2}{*}{BM25} & \multirow{2}{*}{0.442} & PL & [-0.00,0.95] $-0.038*$ & [0.95,0.98] $-0.024$ & [0.98,0.99] $-0.027$ & [0.99,1.00] $-0.037$ \\
+ &  &  &  & MMR & [-0.00,0.95] $-0.002$ & [0.95,0.98] $-0.004$ & [0.98,0.99] $-0.002$ & [0.99,1.00] $-0.044$ \\
+\cmidrule(lr){1-9}
+ & \multirow{2}{*}{T5-Small} & \multirow{2}{*}{Contr.} & \multirow{2}{*}{0.424} & PL & [-0.00,0.95] $-0.048**$ & [0.95,0.98] $-0.023$ & [0.98,0.99] $+0.017$ & [0.99,1.00] $+0.042*$ \\
+ &  &  &  & MMR & [-0.00,0.95] $-0.011$ & [0.95,0.98] $-0.041$ & [0.98,0.99] $+0.072**$ & [0.99,1.00] $+0.073**$ \\
+\midrule
+\multirow{2}{*}{LaMP-7} & \multirow{2}{*}{T5-Base} & \multirow{2}{*}{BM25} & \multirow{2}{*}{0.675} & PL & [-0.00,0.95] $-0.032$ & [0.95,0.98] $-0.028$ & [0.98,0.99] $+0.021$ & [0.99,1.00] $-0.033$ \\
+ &  &  &  & MMR & [-0.00,0.95] $-0.104**$ & [0.95,0.98] $-0.001$ & [0.98,0.99] $+0.069*$ & [0.99,1.00] $-0.085**$ \\
+\cmidrule(lr){1-9}
+ & \multirow{2}{*}{T5-Base} & \multirow{2}{*}{Contr.} & \multirow{2}{*}{0.645} & PL & [-0.00,0.95] $+0.071*$ & [0.95,0.98] $-0.022$ & [0.98,0.99] $+0.011$ & [0.99,1.00] $+0.002$ \\
+ &  &  &  & MMR & [-0.00,0.95] $+0.077*$ & [0.95,0.98] $-0.026$ & [0.98,0.99] $-0.028$ & [0.99,1.00] $+0.005$ \\
+\cmidrule(lr){1-9}
+ & \multirow{2}{*}{T5-Small} & \multirow{2}{*}{BM25} & \multirow{2}{*}{0.535} & PL & [-0.00,0.95] $+0.072*$ & [0.95,0.98] $+0.007$ & [0.98,0.99] $-0.025$ & [0.99,1.00] $+0.007$ \\
+ &  &  &  & MMR & [-0.00,0.95] $+0.018$ & [0.95,0.98] $+0.041$ & [0.98,0.99] $-0.059*$ & [0.99,1.00] $-0.025$ \\
+\cmidrule(lr){1-9}
+ & \multirow{2}{*}{T5-Small} & \multirow{2}{*}{Contr.} & \multirow{2}{*}{0.530} & PL & [-0.00,0.95] $+0.034$ & [0.95,0.98] $-0.015$ & [0.98,0.99] $-0.013$ & [0.99,1.00] $+0.009$ \\
+ &  &  &  & MMR & [-0.00,0.95] $+0.020$ & [0.95,0.98] $-0.034$ & [0.98,0.99] $-0.049*$ & [0.99,1.00] $+0.004$ \\
+\bottomrule
+\end{tabular}
+\caption{Table 6 recreated under (B) dataset-wide bin edges (same edges applied to
+every cell: PL cuts at $[{-}0.00, 0.955, 0.980, 0.992, 1.00]$, MMR cuts at
+$[{-}0.00, 0.955, 0.977, 0.992, 1.00]$, both computed once from the full pooled
+dataset). Bin boundaries shown per row are these same fixed global cuts, repeated
+for readability. Full data in \texttt{table6\_datasetwide\_quartiles.csv}.}
+\label{tab:table6-B}
+\end{table}
+
+\begin{table}[p]
+\centering
+\tiny
+\begin{tabular}{@{}lllrlrrrr@{}}
+\toprule
+Task & Gen. & Ranker & Base & Method & Q1 & Q2 & Q3 & Q4 \\
+\midrule
+\multirow{2}{*}{LaMP-1} & \multirow{2}{*}{T5-Base} & \multirow{2}{*}{BM25} & \multirow{2}{*}{0.681} & PL & [0.25,0.38] $-0.068$ & [0.38,0.62] $-0.053$ & [0.62,0.88] $-0.161**$ & [0.88,1.00] $-0.158**$ \\
+ &  &  &  & MMR & [0.20,0.50] $+0.036$ & [0.50,0.60] $-0.094*$ & [0.60,0.70] $+0.033$ & [0.70,1.00] $+0.019$ \\
+\cmidrule(lr){1-9}
+ & \multirow{2}{*}{T5-Base} & \multirow{2}{*}{Contr.} & \multirow{2}{*}{0.642} & PL & [0.25,0.38] $-0.020$ & [0.38,0.62] $-0.008$ & [0.62,0.81] $-0.087*$ & [0.81,1.00] $-0.089*$ \\
+ &  &  &  & MMR & [0.20,0.40] $+0.009$ & [0.40,0.60] $-0.008$ & [0.60,0.80] $-0.010$ & [0.80,1.00] $-0.004$ \\
+\cmidrule(lr){1-9}
+ & \multirow{2}{*}{T5-Small} & \multirow{2}{*}{BM25} & \multirow{2}{*}{0.451} & PL & [0.25,0.38] $-0.016$ & [0.38,0.62] $-0.015$ & [0.62,0.81] $-0.037$ & [0.81,1.00] $-0.039$ \\
+ &  &  &  & MMR & [0.20,0.50] $-0.011$ & [0.50,0.60] $-0.001$ & [0.60,0.70] $-0.138$ & [0.70,1.00] $-0.028$ \\
+\cmidrule(lr){1-9}
+ & \multirow{2}{*}{T5-Small} & \multirow{2}{*}{Contr.} & \multirow{2}{*}{0.431} & PL & [0.25,0.44] $+0.002$ & [0.44,0.62] $+0.004$ & [0.62,0.81] $-0.035$ & [0.81,1.00] $-0.047$ \\
+ &  &  &  & MMR & [0.20,0.50] $-0.071$ & [0.50,0.60] $+0.176$ & [0.60,0.75] $-0.265$ & [0.75,1.00] $-0.025$ \\
+\midrule
+\multirow{2}{*}{LaMP-2} & \multirow{2}{*}{T5-Base} & \multirow{2}{*}{BM25} & \multirow{2}{*}{0.300} & PL & [0.25,0.38] $+0.008$ & [0.38,0.62] $+0.037$ & [0.62,0.75] $+0.009$ & [0.75,1.00] $+0.023$ \\
+ &  &  &  & MMR & n/a & n/a & n/a & n/a \\
+\cmidrule(lr){1-9}
+ & \multirow{2}{*}{T5-Base} & \multirow{2}{*}{Contr.} & \multirow{2}{*}{0.307} & PL & [0.25,0.38] $+0.030$ & [0.38,0.62] $+0.031$ & [0.62,0.88] $+0.029$ & [0.88,1.00] $-0.025$ \\
+ &  &  &  & MMR & n/a & n/a & n/a & n/a \\
+\cmidrule(lr){1-9}
+ & \multirow{2}{*}{T5-Small} & \multirow{2}{*}{BM25} & \multirow{2}{*}{0.333} & PL & [0.25,0.50] $-0.015$ & [0.50,0.62] $+0.642**$ & [0.62,0.75] $+0.001$ & [0.75,1.00] $+0.011$ \\
+ &  &  &  & MMR & [0.20,0.50] $-0.110*$ & [0.50,0.60] $-0.035$ & [0.60,0.67] $+0.152**$ & [0.67,1.00] $-0.007$ \\
+\cmidrule(lr){1-9}
+ & \multirow{2}{*}{T5-Small} & \multirow{2}{*}{Contr.} & \multirow{2}{*}{0.375} & PL & [0.25,0.38] $-0.024$ & [0.38,0.62] $+0.029$ & [0.62,0.75] $-0.005$ & [0.75,1.00] $-0.010$ \\
+ &  &  &  & MMR & [0.20,0.50] $-0.098*$ & [0.50,0.60] $-0.019$ & [0.60,0.67] $+0.152**$ & [0.67,1.00] $-0.082$ \\
+\midrule
+\multirow{2}{*}{LaMP-3} & \multirow{2}{*}{T5-Base} & \multirow{2}{*}{BM25} & \multirow{2}{*}{0.923} & PL & [0.25,0.38] $-0.004$ & [0.38,0.62] $-0.001$ & [0.62,0.88] $+0.004$ & [0.88,1.00] $+0.006$ \\
+ &  &  &  & MMR & [0.20,0.40] $-0.001$ & [0.40,0.60] $+0.000$ & [0.60,0.80] $+0.006$ & [0.80,1.00] $-0.006$ \\
+\cmidrule(lr){1-9}
+ & \multirow{2}{*}{T5-Base} & \multirow{2}{*}{Contr.} & \multirow{2}{*}{0.927} & PL & [0.25,0.38] $+0.003$ & [0.38,0.62] $-0.004$ & [0.62,0.81] $-0.001$ & [0.81,1.00] $-0.001$ \\
+ &  &  &  & MMR & [0.20,0.40] $+0.011$ & [0.40,0.60] $-0.002$ & [0.60,0.80] $+0.013$ & [0.80,1.00] $-0.004$ \\
+\cmidrule(lr){1-9}
+ & \multirow{2}{*}{T5-Small} & \multirow{2}{*}{BM25} & \multirow{2}{*}{0.908} & PL & [0.25,0.38] $-0.002$ & [0.38,0.62] $-0.009$ & [0.62,0.81] $-0.022*$ & [0.81,1.00] $-0.026*$ \\
+ &  &  &  & MMR & [0.20,0.50] $-0.003$ & [0.50,0.67] $-0.017$ & [0.67,0.83] $-0.013$ & [0.83,1.00] $-0.021$ \\
+\cmidrule(lr){1-9}
+ & \multirow{2}{*}{T5-Small} & \multirow{2}{*}{Contr.} & \multirow{2}{*}{0.897} & PL & [0.25,0.38] $-0.000$ & [0.38,0.62] $-0.001$ & [0.62,0.88] $-0.005$ & [0.88,1.00] $-0.004$ \\
+ &  &  &  & MMR & [0.20,0.50] $-0.001$ & [0.50,0.67] $+0.004$ & [0.67,0.83] $-0.008$ & [0.83,1.00] $-0.016$ \\
+\midrule
+\multirow{2}{*}{LaMP-4} & \multirow{2}{*}{T5-Base} & \multirow{2}{*}{BM25} & \multirow{2}{*}{0.291} & PL & [0.25,0.38] $-0.001$ & [0.38,0.62] $-0.005$ & [0.62,0.88] $-0.040**$ & [0.88,1.00] $-0.052**$ \\
+ &  &  &  & MMR & [0.20,0.50] $-0.001$ & [0.50,0.60] $+0.010$ & n/a & [0.65,1.00] $-0.000$ \\
+\cmidrule(lr){1-9}
+ & \multirow{2}{*}{T5-Base} & \multirow{2}{*}{Contr.} & \multirow{2}{*}{0.340} & PL & [0.25,0.38] $-0.017$ & [0.38,0.62] $-0.015$ & [0.62,0.88] $-0.074**$ & [0.88,1.00] $-0.083**$ \\
+ &  &  &  & MMR & [0.20,0.50] $-0.008$ & [0.50,0.60] $+0.000$ & [0.60,0.70] $-0.047*$ & [0.70,1.00] $+0.014$ \\
+\cmidrule(lr){1-9}
+ & \multirow{2}{*}{T5-Small} & \multirow{2}{*}{BM25} & \multirow{2}{*}{0.297} & PL & [0.25,0.38] $-0.002$ & [0.38,0.62] $-0.002$ & [0.62,0.88] $-0.013$ & [0.88,1.00] $-0.021$ \\
+ &  &  &  & MMR & n/a & n/a & n/a & n/a \\
+\cmidrule(lr){1-9}
+ & \multirow{2}{*}{T5-Small} & \multirow{2}{*}{Contr.} & \multirow{2}{*}{0.326} & PL & [0.25,0.38] $-0.008$ & [0.38,0.62] $-0.016$ & [0.62,0.88] $-0.059**$ & [0.88,1.00] $-0.066**$ \\
+ &  &  &  & MMR & [0.20,0.50] $+0.012$ & [0.50,0.67] $-0.002$ & [0.67,0.80] $-0.103**$ & [0.80,1.00] $-0.018$ \\
+\midrule
+\multirow{2}{*}{LaMP-5} & \multirow{2}{*}{T5-Base} & \multirow{2}{*}{BM25} & \multirow{2}{*}{0.531} & PL & [0.25,0.38] $+0.005$ & [0.38,0.62] $+0.009$ & [0.62,0.78] $-0.001$ & [0.78,1.00] $-0.011$ \\
+ &  &  &  & MMR & [0.20,0.40] $+0.015$ & [0.40,0.60] $+0.006$ & [0.60,0.80] $+0.029$ & [0.80,1.00] $+0.005$ \\
+\cmidrule(lr){1-9}
+ & \multirow{2}{*}{T5-Base} & \multirow{2}{*}{Contr.} & \multirow{2}{*}{0.550} & PL & [0.25,0.38] $-0.006$ & [0.38,0.62] $-0.003$ & [0.62,0.88] $-0.020$ & [0.88,1.00] $-0.027$ \\
+ &  &  &  & MMR & [0.20,0.50] $-0.007$ & [0.50,0.60] $+0.021$ & [0.60,0.80] $+0.030$ & [0.80,1.00] $-0.038$ \\
+\cmidrule(lr){1-9}
+ & \multirow{2}{*}{T5-Small} & \multirow{2}{*}{BM25} & \multirow{2}{*}{0.458} & PL & [0.25,0.38] $+0.000$ & [0.38,0.62] $+0.000$ & [0.62,0.78] $-0.038*$ & [0.78,1.00] $-0.046**$ \\
+ &  &  &  & MMR & [0.20,0.50] $+0.018$ & [0.50,0.67] $-0.011$ & [0.67,0.83] $+0.014$ & [0.83,1.00] $+0.028$ \\
+\cmidrule(lr){1-9}
+ & \multirow{2}{*}{T5-Small} & \multirow{2}{*}{Contr.} & \multirow{2}{*}{0.465} & PL & [0.25,0.38] $-0.007$ & [0.38,0.62] $-0.010$ & [0.62,0.88] $-0.054**$ & [0.88,1.00] $-0.053**$ \\
+ &  &  &  & MMR & [0.20,0.50] $-0.013$ & [0.50,0.67] $+0.003$ & [0.67,0.83] $-0.007$ & [0.83,1.00] $-0.044$ \\
+\midrule
+\multirow{2}{*}{LaMP-6} & \multirow{2}{*}{T5-Base} & \multirow{2}{*}{BM25} & \multirow{2}{*}{0.473} & PL & [0.25,0.38] $-0.020$ & [0.38,0.62] $-0.016$ & [0.62,0.75] $-0.061**$ & [0.75,1.00] $-0.071**$ \\
+ &  &  &  & MMR & [0.20,0.40] $-0.007$ & [0.40,0.60] $+0.012$ & [0.60,0.80] $-0.024$ & [0.80,1.00] $-0.016$ \\
+\cmidrule(lr){1-9}
+ & \multirow{2}{*}{T5-Base} & \multirow{2}{*}{Contr.} & \multirow{2}{*}{0.444} & PL & [0.25,0.38] $-0.007$ & [0.38,0.62] $-0.002$ & [0.62,0.75] $-0.036*$ & [0.75,1.00] $-0.052**$ \\
+ &  &  &  & MMR & [0.20,0.40] $+0.002$ & [0.40,0.60] $-0.007$ & [0.60,0.80] $-0.003$ & [0.80,1.00] $-0.027$ \\
+\cmidrule(lr){1-9}
+ & \multirow{2}{*}{T5-Small} & \multirow{2}{*}{BM25} & \multirow{2}{*}{0.442} & PL & [0.25,0.38] $-0.013$ & [0.38,0.62] $+0.006$ & [0.62,0.75] $-0.064**$ & [0.75,1.00] $-0.067**$ \\
+ &  &  &  & MMR & [0.20,0.50] $+0.004$ & [0.50,0.67] $-0.003$ & [0.67,0.83] $-0.037$ & [0.83,1.00] $-0.022$ \\
+\cmidrule(lr){1-9}
+ & \multirow{2}{*}{T5-Small} & \multirow{2}{*}{Contr.} & \multirow{2}{*}{0.424} & PL & [0.25,0.38] $-0.002$ & [0.38,0.62] $-0.003$ & [0.62,0.75] $-0.044*$ & [0.75,1.00] $-0.046**$ \\
+ &  &  &  & MMR & [0.20,0.40] $-0.021$ & [0.40,0.67] $+0.046*$ & [0.67,0.83] $-0.030$ & [0.83,1.00] $+0.016$ \\
+\midrule
+\multirow{2}{*}{LaMP-7} & \multirow{2}{*}{T5-Base} & \multirow{2}{*}{BM25} & \multirow{2}{*}{0.675} & PL & [0.25,0.38] $-0.006$ & [0.38,0.62] $-0.020$ & [0.62,0.75] $-0.011$ & [0.75,1.00] $-0.014$ \\
+ &  &  &  & MMR & n/a & n/a & n/a & n/a \\
+\cmidrule(lr){1-9}
+ & \multirow{2}{*}{T5-Base} & \multirow{2}{*}{Contr.} & \multirow{2}{*}{0.645} & PL & [0.25,0.38] $+0.008$ & [0.38,0.56] $+0.006$ & [0.56,0.88] $-0.001$ & [0.88,1.00] $+0.005$ \\
+ &  &  &  & MMR & [0.20,0.50] $-0.005$ & [0.50,0.60] $+0.000$ & [0.60,0.70] $-0.003$ & [0.70,1.00] $-0.012$ \\
+\cmidrule(lr){1-9}
+ & \multirow{2}{*}{T5-Small} & \multirow{2}{*}{BM25} & \multirow{2}{*}{0.535} & PL & [0.25,0.38] $+0.011$ & [0.38,0.62] $+0.005$ & [0.62,0.88] $-0.002$ & [0.88,1.00] $-0.014$ \\
+ &  &  &  & MMR & n/a & n/a & n/a & n/a \\
+\cmidrule(lr){1-9}
+ & \multirow{2}{*}{T5-Small} & \multirow{2}{*}{Contr.} & \multirow{2}{*}{0.530} & PL & [0.25,0.38] $+0.004$ & [0.38,0.50] $+0.001$ & [0.50,0.88] $-0.005$ & [0.88,1.00] $-0.009$ \\
+ &  &  &  & MMR & n/a & n/a & n/a & n/a \\
+\bottomrule
+\end{tabular}
+\caption{Table 6 recreated under (C) query-specific rank-based bins: within each
+query, that query's own same-method draws are ranked by ILD (percentile rank in
+$[0,1]$), then binned at fixed $0/.25/.5/.75/1$ cuts. Bracketed values are the
+achieved rank-percentile range within each bin (not an ILD value, unlike (A) and
+(B)). Full data in \texttt{table6\_queryrank\_quartiles.csv}.}
+\label{tab:table6-C}
+\end{table}
+
+\FloatBarrier
+\subsection{Does the Least-Diverse Bin Survive a Tighter Cutoff? (15\% and 10\%)}
+\label{sec:bottom15}
+
+The main paper's Table 2 (\texttt{tab:ild-quartiles}) uses Q1 --- the bottom 25\%
+of each cell's own ILD$_{\text{norm}}$ distribution --- as ``least diverse.'' Table
+\ref{tab:bottom15} recomputes the same 8 cells $\times$ \{PL, MMR\} at bottom-10\%
+and bottom-15\% too, same mechanism otherwise (cell-pooled, own quantile cutoff per
+cutoff, Welch's $t$-test vs.\ deterministic).
+
+\begin{table}[h]
+\centering
+\scriptsize
+\begin{tabular}{@{}llllrlll@{}}
+\toprule
+Task & Gen. & Ranker & Method & Base & Bottom 10\% & Bottom 15\% & Bottom 25\% (Q1) \\
+\midrule
+LaMP-1 & T5-Base & BM25 & PL & 0.681 & $+0.007$ (n{=}93) & $-0.052$ (n{=}140) & $-0.071$ (n{=}232) \\
+LaMP-1 & T5-Base & BM25 & MMR & 0.681 & $+0.048$ (n{=}118) & $+0.066$ (n{=}174) & $+0.053$ (n{=}293) \\
+LaMP-1 & T5-Base & Contr. & PL & 0.642 & $+0.051$ (n{=}93) & $+0.023$ (n{=}140) & $-0.042$ (n{=}232) \\
+LaMP-1 & T5-Base & Contr. & MMR & 0.642 & $+0.047$ (n{=}116) & $+0.011$ (n{=}176) & $-0.007$ (n{=}291) \\
+LaMP-1 & T5-Small & BM25 & PL & 0.451 & $-0.256^{*}$ (n{=}21) & $-0.157$ (n{=}31) & $-0.135$ (n{=}51) \\
+LaMP-1 & T5-Small & BM25 & MMR & 0.451 & $-0.066$ (n{=}26) & $-0.169$ (n{=}39) & $-0.143$ (n{=}65) \\
+LaMP-1 & T5-Small & Contr. & PL & 0.431 & $-0.208$ (n{=}21) & $-0.109$ (n{=}31) & $-0.043$ (n{=}51) \\
+LaMP-1 & T5-Small & Contr. & MMR & 0.431 & $-0.320^{**}$ (n{=}27) & $-0.149$ (n{=}39) & $-0.041$ (n{=}64) \\
+\addlinespace
+LaMP-4 & T5-Base & BM25 & PL & 0.291 & $-0.001$ (n{=}331) & $-0.004$ (n{=}497) & $-0.011$ (n{=}827) \\
+LaMP-4 & T5-Base & BM25 & MMR & 0.291 & $+0.049^{**}$ (n{=}414) & $+0.024$ (n{=}622) & $+0.003$ (n{=}1035) \\
+LaMP-4 & T5-Base & Contr. & PL & 0.340 & $+0.028$ (n{=}331) & $+0.009$ (n{=}497) & $-0.002$ (n{=}827) \\
+LaMP-4 & T5-Base & Contr. & MMR & 0.340 & $+0.035$ (n{=}415) & $+0.017$ (n{=}621) & $+0.029^{*}$ (n{=}1037) \\
+LaMP-4 & T5-Small & BM25 & PL & 0.297 & $-0.014$ (n{=}334) & $-0.012$ (n{=}500) & $-0.010$ (n{=}833) \\
+LaMP-4 & T5-Small & BM25 & MMR & 0.297 & $+0.067^{**}$ (n{=}270) & $+0.026$ (n{=}405) & $+0.006$ (n{=}677) \\
+LaMP-4 & T5-Small & Contr. & PL & 0.326 & $+0.025$ (n{=}334) & $+0.002$ (n{=}500) & $-0.004$ (n{=}833) \\
+LaMP-4 & T5-Small & Contr. & MMR & 0.326 & $+0.043^{*}$ (n{=}270) & $+0.029$ (n{=}405) & $+0.028$ (n{=}675) \\
+\bottomrule
+\end{tabular}
+\caption{Same 8 cells as the main paper's Table 2, bottom-10\%/15\%/25\%(Q1),
+same significance convention. ILD$_{\text{norm}}$ ranges omitted here for width;
+full ranges and data in \texttt{table2\_bottom10\_15\_vs\_q1.csv}.}
+\label{tab:bottom15}
+\end{table}
+
+\textbf{15\% is mostly consistent with Q1, with one exception.} 12 of the 16
+cells keep the same sign going from 25\%(Q1) to 15\%, and all 4 that flip do so
+at small magnitude near zero (e.g.\ LaMP-1/Base/Contr./PL: $-0.042\to+0.023$) ---
+not surprising for a cell that was never far from zero. The one substantive
+change: the paper's Table 2's only starred cell (MMR, LaMP-4/Base/Contriever, Q1
+$+0.029^{*}$) drops to $+0.017$, not significant, at 15\% --- same sign, still
+MMR's largest LaMP-4 cell, but $n$ falling from 1037 to 621 is enough to lose
+$p{<}0.05$.
+
+\textbf{10\% does not continue that trend --- it reverses it, and not in a way
+that inspires confidence.} Naively, tightening further should only make
+significance \emph{harder} to reach (smaller $n$, same or more noise). Instead,
+\textbf{5 of 16 cells are significant at 10\%, more than at 15\% (0) or Q1 (1)
+combined} --- three new MMR positives on LaMP-4 (Base/BM25 $+0.049^{**}$,
+Small/BM25 $+0.067^{**}$, Small/Contr.\ $+0.043^{*}$) and two new LaMP-1/Small
+negatives (BM25/PL $-0.256^{*}$, Contr./MMR $-0.320^{**}$, the single largest
+magnitude in the whole table). This is not evidence that 10\% is a
+\emph{better-powered} cutoff --- it is evidence that the bottom decile is a
+qualitatively different, smaller population, not just a stricter version of the
+same one. We checked directly: at 10\%, LaMP-1/Small/Contr.'s MMR bin has 27
+observations from only \textbf{8 unique queries} (of 51 in the cell) --- each
+query contributing $\sim$3.4 samples on average, because a query whose ILD is
+structurally low stays low across most of its $\lambda$ draws (the same tie
+mechanism as Section~\ref{sec:quartile}'s root-cause discussion). At 15\% that
+grows to 13 unique queries, at 25\% to 20; LaMP-4 cells show the same pattern
+more mildly (e.g.\ LaMP-4/Base/BM25/MMR: 120 unique queries at 10\% vs.\ 279 at
+25\%, out of 827 total). Welch's $t$-test assumes independent observations; a
+handful of queries each contributing 3--4 correlated draws violates that, so the
+$p$-values at 10\% are anti-conservative --- they look more significant than they
+are. \textbf{The right reading is the opposite of the naive one}: the 10\%
+results are \emph{less} trustworthy than 15\% or 25\%, not more, precisely
+because they clear significance more often on a smaller, more repetitive query
+pool. This reinforces \S\ref{sec:quartile}'s point rather than adding a new one
+--- the least-diverse tail is dominated by a small set of structurally-low-ILD
+queries, and how much of that tail you include changes both the point estimate
+and how trustworthy the significance test on it actually is.
+
+\FloatBarrier
+\section{EE-D-Interval vs.\ ILD-Quartile: Do the Two Views Agree?}
+\label{sec:eed-ild}
+
+The paper's Table 4 bins PL's utility gain by EE-D interval (five fixed bins,
+pooled across all four $\alpha$); its Table 2/6 bins by each cell's own
+ILD$_{\text{norm}}$ quartile. Both claim to reflect the same underlying
+fairness/diversity/utility relationship, so we rebuilt both views from the
+\emph{identical} underlying (qid, $\alpha$) PL rows for the paper's Table 4's 8
+cells, and report the direct per-cell correlation between EE-D and raw ILD
+alongside them. (This section's own tables below are numbered independently of the
+paper's --- ``the paper's Table $N$'' always means the main
+\texttt{fair\_rag\_diversity\_paper.tex}, never a table in this document.)
+
+Unlike the ILD-quartile bins (Section~\ref{sec:quartile}), the EE-D-interval bins
+are five \emph{equal-width}, not equal-population, buckets, and they are far from
+balanced: pooled across all 8 cells, \textbf{48.0\% of all 13{,}164 (qid,
+$\alpha$) points fall in [0.6,1.0)} --- the top two of five bins hold almost as
+much data as the other three combined (raw counts: [.0,.2){:} 4204, [.2,.4){:}
+1329, [.4,.6){:} 1306, [.6,.8){:} 1740, [.8,1.0]{:} 4585). By task this is 43.3\%
+for LaMP-1 and 49.0\% for LaMP-4, and by cell it ranges 41--47\% in 7 of the 8
+cells with one sharp outlier, LaMP-4/Small/BM25, at 80.3\% (838 of its 1132
+points sit in [.8,1.0] alone). So a cell-by-cell reading of the paper's Table 4
+is implicitly comparing bins of very different size --- e.g.\ LaMP-1/Base/BM25's
+[.0,.2) bin (n{=}341) against its [.4,.6) bin (n{=}42), an 8$\times$ difference ---
+the same population-imbalance concern Section~\ref{sec:quartile} raises for
+alternative ILD-quartile mechanisms, just inherent to EE-D-interval binning from
+the start rather than introduced by a specific alternative.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}lrr@{}}
+\toprule
+Cell & Spearman $\rho$(EE-D, ILD) & $p$ \\
+\midrule
+LaMP-1/Small/BM25   & $-0.358$ & $<0.001$ \\
+LaMP-1/Small/Contr. & $-0.358$ & $<0.001$ \\
+LaMP-1/Base/BM25    & $-0.312$ & $<0.001$ \\
+LaMP-1/Base/Contr.  & $-0.380$ & $<0.001$ \\
+LaMP-4/Small/BM25   & $-0.212$ & $<0.001$ \\
+LaMP-4/Small/Contr. & $-0.346$ & $<0.001$ \\
+LaMP-4/Base/BM25    & $-0.399$ & $<0.001$ \\
+LaMP-4/Base/Contr.  & $-0.351$ & $<0.001$ \\
+\bottomrule
+\end{tabular}
+\caption{EE-D and raw ILD are reliably negatively correlated (lower EE-D $\to$
+higher ILD, matching the paper's Table 4's own ILD-by-EE-D-bin appendix finding) but only
+moderately so: $|\rho|\approx 0.2$--$0.4$. A lot of query-to-query variation in ILD
+is \emph{not} explained by EE-D alone.}
+\label{tab:eed-ild-corr}
+\end{table}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+Cell & EE-D interval view (low$\to$high EE-D) & ILD quartile view (Q1$\to$Q4, same rows) \\
+\midrule
+LaMP-1/Base/BM25 &
+$-0.226^{**}, -0.073, -0.041, -0.045, -0.020$ &
+$-0.006, -0.071, -0.145^{**}, -0.222^{**}$ \\
+LaMP-1/Base/Contr. &
+$-0.140^{**}, +0.017, -0.063, +0.054, +0.007$ &
+$+0.042, -0.073, -0.048, -0.129^{**}$ \\
+LaMP-4/Base/BM25 &
+$-0.080^{**}, -0.018, +0.022, +0.002, +0.001$ &
+$+0.036^{**}, -0.016, -0.045^{**}, -0.072^{**}$ \\
+LaMP-4/Base/Contr. &
+$-0.129^{**}, -0.042^{**}, +0.000, -0.012, +0.003$ &
+$+0.011, -0.021, -0.069^{**}, -0.111^{**}$ \\
+\bottomrule
+\end{tabular}
+\caption{$\Delta$EU$_{\text{norm}}$ vs.\ deterministic, same underlying PL rows,
+binned two ways. Full 8-cell table (incl.\ the noisier Small-generator cells) in
+\texttt{aux\_eed\_vs\_ild\_reconciliation.csv}.}
+\label{tab:eed-ild-sidebyside}
+\end{table}
+
+\textbf{Read side by side, the two views are not contradictory --- they largely
+agree on \emph{shape}, once the correlation above is kept in mind.} The EE-D view's
+significant negative result sits at the \emph{lowest} EE-D bin (most aggressive
+fairness intervention); the ILD view's significant negative result sits at the
+\emph{highest} ILD quartile (most diversified). Since lower EE-D correlates with
+higher ILD, both views are pointing at roughly the same underlying
+``most-perturbed-from-deterministic'' end of the data, just measured two different
+(and only moderately correlated) ways. Where they genuinely differ is in the
+\emph{middle}: the EE-D view shows a fairly steady recovery toward zero as EE-D
+rises; the ILD view instead shows the least-diversified quartile (Q1) close to zero
+or even significantly \emph{positive} (LaMP-4/Base/BM25: $+0.036^{**}$), which is a
+real, distinct finding EE-D-binning alone would not surface --- and is exactly the
+one Table 2/6's own text is built around. The two tables are not measuring the same
+partition of the data (only $|\rho|\approx 0.3$ links them), so some divergence
+in the interior bins is expected, not a sign either table is wrong.
+
+\FloatBarrier
+\section{Does ``MMR Beats PL'' Survive Contact with the Raw Per-Setting Table?}
+\label{sec:mmr-vs-pl}
+
+Table 2/6 and Figure 2 report MMR's Q1 bin beating PL's Q1 bin in several cells. The
+raw, unconditional per-setting table (\texttt{eu\_norm\_by\_setting\_wide.csv}) does
+not show a clean ``MMR $>$ PL'' pattern when just comparing individual $\alpha$/
+$\lambda$ settings' own means. Both can be true at once if Q1-membership is doing
+real work beyond ``which setting is mild.'' We checked this directly: for each
+method's Q1 bin, what settings populate it, and how does the Q1 bin's mean compare
+to those same settings' own \emph{raw} (unconditional) means in the same cell.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+Cell & Method & Q1 mean & max of any contributing setting's raw mean & Q1 $-$ max raw \\
+\midrule
+\multirow{2}{*}{LaMP-4/Base/Contr.} & PL  & 0.338 & 0.341 ($\alpha{=}8$) & $-0.003$ \\
+ & MMR & 0.369 & 0.341 ($\lambda{=}0.7$) & $+0.028$ \\
+\multirow{2}{*}{LaMP-6/Base/BM25} & PL  & 0.445 & 0.467 ($\alpha{=}8$) & $-0.022$ \\
+ & MMR & 0.513 & 0.470 ($\lambda{=}0.7$) & $+0.043$ \\
+\multirow{2}{*}{LaMP-7/Base/BM25} & PL  & 0.643 & 0.669 ($\alpha{=}8$) & $-0.026$ \\
+ & MMR & 0.607 & 0.675 ($\lambda{=}0.7$) & $-0.068$ \\
+\bottomrule
+\end{tabular}
+\caption{Q1 bin mean vs.\ the highest raw (unconditional) mean among the settings
+that actually populate that Q1 bin. Full composition breakdown (which $\alpha$/
+$\lambda$ contributes what share of each Q1 bin) in
+\texttt{aux\_mmr\_vs\_pl\_q1\_composition.txt}.}
+\label{tab:q1-composition}
+\end{table}
+
+\textbf{PL's Q1 bin is well explained by composition; MMR's is not.} In all three
+cells, PL's Q1 mean sits at or slightly \emph{below} the best raw mean among its own
+contributing settings (mostly $\alpha{=}4$/$8$) --- Q1-conditioning adds essentially
+nothing beyond ``which $\alpha$ dominates this bin.'' MMR's Q1 mean, by contrast,
+deviates sharply from its own contributing settings' raw means in \emph{both}
+directions: $+0.028$ and $+0.043$ above the best contributing setting's own average
+in the two cells where MMR wins, and $-0.068$ \emph{below} it in LaMP-7, where MMR's
+Q1 result is significantly negative. This is why the raw per-setting table alone
+does not show ``MMR beats PL'': that table answers a different question
+(unconditional average utility per setting) than Table 2/6 does (utility conditional
+on landing in the least-diversified bin, regardless of which setting produced it).
+The two are not in conflict, but the size of MMR's composition-independent
+Q1 effect --- large and in \emph{either} direction depending on task --- is worth
+being explicit about rather than leaving implicit in the ``MMR beats PL'' framing.
+
+\FloatBarrier
+\section{Bottom Line: Does More Diversity Buy More Utility?}
+\label{sec:diversity-trend}
+
+Every earlier section conditions on \emph{realized} per-query ILD to ask about
+utility. This section asks the more direct question: for the setting itself (a
+fixed PL $\alpha$ or MMR $\lambda$), does turning the diversity knob up predict a
+better or worse $\Delta$EU$_{\text{norm}}$ against deterministic, pooled across all
+7 tasks $\times$ 4 cells $= 28$ cells per method? We first confirmed empirically
+which direction each knob actually moves realized diversity (mean
+ILD$_{\text{norm}}$ of that setting's own output, averaged over the 28 cells):
+$\alpha{=}1{\to}8$ gives $0.974 \to 0.966 \to 0.936 \to 0.928$; $\lambda{=}0.3{\to}0.85$
+gives $0.986 \to 0.971 \to 0.960 \to 0.945 \to 0.938$. Both knobs behave as expected
+and move diversity monotonically on average --- low $\alpha$/low $\lambda$ is the
+more-diverse end, high $\alpha$/high $\lambda$ the less-diverse end closest to
+deterministic.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+Setting & Mean ILD$_{\text{norm}}$ & Mean $\Delta$EU$_{\text{norm}}$ & Median & \# cells positive & $p$ vs.\ 0$^\dagger$ \\
+\midrule
+PL $\alpha{=}1$ (most diverse)       & 0.974 & $-0.041$ & $-0.029$ & 4/28  & $0.0003$ \\
+PL $\alpha{=}2$                      & 0.966 & $-0.031$ & $-0.024$ & 6/28  & $0.0004$ \\
+PL $\alpha{=}4$                      & 0.936 & $+0.000$ & $+0.000$ & 13/28 & $0.978$ \\
+PL $\alpha{=}8$ (least diverse)      & 0.928 & $+0.001$ & $+0.001$ & 15/28 & $0.429$ \\
+\addlinespace
+MMR $\lambda{=}0.3$ (most diverse)   & 0.986 & $-0.015$ & $-0.018$ & 9/28  & $0.010$ \\
+MMR $\lambda{=}0.45$                 & 0.971 & $-0.004$ & $-0.004$ & 11/28 & $0.226$ \\
+MMR $\lambda{=}0.55$                 & 0.960 & $-0.001$ & $-0.003$ & 12/28 & $0.600$ \\
+MMR $\lambda{=}0.7$                  & 0.945 & $-0.011$ & $-0.002$ & 11/28 & $0.104$ \\
+MMR $\lambda{=}0.85$                 & 0.938 & $+0.001$ & $-0.000$ & 12/28 & $0.697$ \\
+MMR $\lambda{=}0.9$                  & 0.935 & $-0.000$ & $-0.000$ & 12/28 & $0.720$ \\
+MMR $\lambda{=}0.95$ (least diverse) & 0.931 & $+0.000$ & $+0.000$ & 11/28 & $0.877$ \\
+\bottomrule
+\end{tabular}
+\caption{Marginal (pooled across all 28 cells) mean $\Delta$EU$_{\text{norm}}$ per
+setting, vs.\ that cell's own deterministic baseline. $\lambda{=}0.9$ and
+$\lambda{=}0.95$ added 2026-08-18 specifically to push MMR's least-diverse
+setting closer to PL $\alpha{=}8$'s realized ILD$_{\text{norm}}$ (0.928): $\lambda{=}0.95$
+reaches 0.931, the closest any MMR setting gets. Full data in
+\texttt{aux\_diversity\_trend\_marginal.csv}. $^\dagger$This $p$ is a
+\emph{one-sample} $t$-test of the setting's 28 cell-level mean deltas against zero
+--- a different test from the within-cell Welch's stars used everywhere else in
+this document (those treat individual queries as the sample; this treats each of
+the 28 cells' own mean as one data point), so no stars are used here to avoid
+notation collision.}
+\label{tab:diversity-trend-marginal}
+\end{table}
+
+\textbf{For PL: it is the low-$\alpha$/high-diversity half of the range that hurts,
+not every $\alpha$.} $\alpha{=}1$ and $\alpha{=}2$ are both significantly negative
+on average ($p{=}0.0003$, $p{=}0.0004$); $\alpha{=}4$ and $\alpha{=}8$ are
+statistically indistinguishable from deterministic ($p{=}0.98$, $p{=}0.43$) ---
+not worse, but not better either, just noise around zero. The within-cell slope
+across the full range is still real: correlating each cell's own 4 $\alpha$ points'
+realized ILD$_{\text{norm}}$ against their $\Delta$EU$_{\text{norm}}$ gives
+\textbf{24 of 28 cells a negative slope} (sign test $p{=}0.00018$; pooling all
+$28{\times}4{=}112$ points gives $\rho{=}-0.110$, $p{=}0.25$) --- but that slope is
+driven almost entirely by $\alpha{=}1$/$2$ being bad, not by $\alpha{=}8$ being
+good.
+
+\textbf{For MMR, the pattern is even more concentrated in a single setting ---
+and adding $\lambda{=}0.9$ and $\lambda{=}0.95$ does not change that.} Only
+$\lambda{=}0.3$, the most-diverse MMR setting run, is significantly negative
+($p{=}0.010$); $\lambda{=}0.45$ through $0.95$ are all statistically
+indistinguishable from zero ($p{=}0.10$--$0.88$), including both new points
+themselves ($p{=}0.72$ and $p{=}0.88$, essentially the same wash as
+$\lambda{=}0.85$). Pooling all $28{\times}7{=}196$ points sits at
+$\rho{=}-0.151$, $p{=}0.035$ --- nominally significant, similar to where it
+landed with six $\lambda$'s ($\rho{=}-0.156$, $p{=}0.044$) but noticeably
+different from five ($\rho{=}-0.164$, $p{=}0.053$). The per-cell sign test tells
+a bumpier story across the same three additions: 18/8 of 26 non-flat cells
+($p{=}0.076$) at five $\lambda$'s, 18/10 of 28 ($p{=}0.185$) at six, 19/8 of 27
+non-flat ($p{=}0.052$) at seven --- non-monotonic, swinging back toward
+significance rather than settling. That instability is itself the finding: the
+per-cell sign test, the statistic we've argued throughout this section is the
+right one to trust given the nested design, does not converge as more $\lambda$'s
+are added, which means none of these individual $p$-values (marginal or pooled)
+should be read as a stable estimate of anything --- the true per-cell relationship
+is just noisy at $n{=}28$ cells, in both directions, regardless of how many
+$\lambda$'s populate it. Individually, neither $\lambda{=}0.9$ nor $\lambda{=}0.95$
+contributes a single new significant cell (still just the same two, both at
+LaMP-4/Small/BM25, unchanged since five $\lambda$'s). MMR's diversity-utility
+relationship is noisier and more task-dependent than PL's --- consistent with
+Section~\ref{sec:mmr-vs-pl}'s finding that MMR's Q1 bin carries a real,
+composition-independent effect that varies in \emph{both} directions by task,
+unlike PL's.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.75\textwidth]{fig_aux_diversity_trend.png}
+\caption{$\Delta$EU$_{\text{norm}}$ vs.\ deterministic against each setting's own
+realized mean ILD$_{\text{norm}}$, one point per (cell, $\alpha$/$\lambda$); orange
+= PL, teal = MMR (same colors as the main paper's figures). Lines are unweighted
+linear fits shown for visual reference; the per-cell sign test above is the
+statistic we'd actually trust given the nested structure.}
+\label{fig:diversity-trend}
+\end{figure}
+
+\textbf{Bottom line:} in both methods, only the most-diverse end of the range we
+tested is significantly worse than deterministic --- PL's $\alpha{\le}2$ and MMR's
+$\lambda{=}0.3$ --- while every less-diverse setting (PL $\alpha{\ge}4$; MMR
+$\lambda{\ge}0.45$, now confirmed out to $\lambda{=}0.95$) is statistically
+indistinguishable from deterministic, not better. Checking every individual cell
+too, not just the 28-cell marginal means: \textbf{zero} of PL's 112 (cell,
+$\alpha$) combinations and \textbf{zero} of MMR's 196 (cell, $\lambda$)
+combinations show a significantly \emph{positive} $\Delta$EU$_{\text{norm}}$ ---
+every one of the 25 significant PL cells and both significant MMR cells is
+negative. So: no, there is no $\alpha$ or $\lambda$, anywhere in the grid, that
+reliably beats deterministic --- and pushing MMR all the way to $\lambda{=}0.95$
+(realized ILD$_{\text{norm}}{=}0.931$, the closest any MMR setting gets to PL
+$\alpha{=}8$'s $0.928$) does not surface one either; it is just another point in
+the tied region. There is a large region that is statistically \emph{tied} with
+deterministic (PL $\alpha{\ge}4$ everywhere; MMR at any $\lambda{\ge}0.45$, and
+even $\lambda{=}0.3$ in most individual cells), plus a smaller region (PL's
+most-diverse settings, and MMR pushed hard at $\lambda{=}0.3$) that is reliably
+worse. The honest summary is ``enough diversity is measurably costly; anything
+short of that is free, not beneficial,'' not ``some amount of diversity helps.''
+
+\FloatBarrier
+\subsection{Full Table: $\Delta$EU$_{\text{norm}}$ by Dataset $\times$ Ranker
+$\times$ Model $\times$ Method $\times$ $\alpha$/$\lambda$}
+\label{sec:full-delta-table}
+
+Tables~\ref{tab:delta-pl} and~\ref{tab:delta-mmr} give the granular numbers behind
+Table~\ref{tab:diversity-trend-marginal}'s marginal view --- every individual cell,
+not just the pooled average. ``Base'' is each cell's own deterministic
+EU$_{\text{norm}}$ baseline (identical to Table 6's ``Base'' column); every other
+entry is $\Delta$EU$_{\text{norm}}$ against it, same significance convention as
+everywhere else in this document.
+
+\begin{table}[p]
+\centering
+\small
+\begin{tabular}{@{}lllrrrrr@{}}
+\toprule
+Task & Gen. & Ranker & Base & $\alpha{=}1$ & $\alpha{=}2$ & $\alpha{=}4$ & $\alpha{=}8$ \\
+\midrule
+\multirow{4}{*}{LaMP-1} & Base & BM25 & 0.681 & $-0.215**$ & $-0.172**$ & $-0.047$ & $-0.006$ \\
+\cmidrule(lr){2-8}
+ & Base & Contr. & 0.642 & $-0.144**$ & $-0.087*$ & $+0.022$ & $+0.004$ \\
+\cmidrule(lr){2-8}
+ & Small & BM25 & 0.451 & $-0.059$ & $-0.049$ & $+0.000$ & $+0.000$ \\
+\cmidrule(lr){2-8}
+ & Small & Contr. & 0.431 & $-0.039$ & $-0.043$ & $+0.008$ & $-0.002$ \\
+\midrule
+\multirow{4}{*}{LaMP-2} & Base & BM25 & 0.300 & $+0.036$ & $+0.021$ & $+0.015$ & $+0.005$ \\
+\cmidrule(lr){2-8}
+ & Base & Contr. & 0.307 & $+0.000$ & $+0.012$ & $+0.039$ & $+0.017$ \\
+\cmidrule(lr){2-8}
+ & Small & BM25 & 0.333 & $+0.017$ & $+0.015$ & $-0.006$ & $-0.003$ \\
+\cmidrule(lr){2-8}
+ & Small & Contr. & 0.375 & $-0.020$ & $+0.006$ & $+0.000$ & $+0.006$ \\
+\midrule
+\multirow{4}{*}{LaMP-3} & Base & BM25 & 0.923 & $+0.005$ & $+0.003$ & $-0.002$ & $-0.000$ \\
+\cmidrule(lr){2-8}
+ & Base & Contr. & 0.927 & $-0.004$ & $-0.002$ & $+0.002$ & $+0.002$ \\
+\cmidrule(lr){2-8}
+ & Small & BM25 & 0.906 & $-0.030**$ & $-0.023*$ & $-0.008$ & $+0.001$ \\
+\cmidrule(lr){2-8}
+ & Small & Contr. & 0.897 & $-0.011$ & $-0.004$ & $+0.004$ & $+0.001$ \\
+\midrule
+\multirow{4}{*}{LaMP-4} & Base & BM25 & 0.291 & $-0.051**$ & $-0.043**$ & $-0.002$ & $-0.002$ \\
+\cmidrule(lr){2-8}
+ & Base & Contr. & 0.340 & $-0.105**$ & $-0.087**$ & $+0.001$ & $+0.001$ \\
+\cmidrule(lr){2-8}
+ & Small & BM25 & 0.297 & $-0.027*$ & $-0.016$ & $+0.005$ & $+0.001$ \\
+\cmidrule(lr){2-8}
+ & Small & Contr. & 0.326 & $-0.082**$ & $-0.062**$ & $-0.005$ & $+0.001$ \\
+\midrule
+\multirow{4}{*}{LaMP-5} & Base & BM25 & 0.531 & $-0.011$ & $-0.004$ & $+0.012$ & $+0.006$ \\
+\cmidrule(lr){2-8}
+ & Base & Contr. & 0.550 & $-0.029$ & $-0.025$ & $-0.004$ & $+0.002$ \\
+\cmidrule(lr){2-8}
+ & Small & BM25 & 0.458 & $-0.052**$ & $-0.039*$ & $+0.009$ & $-0.003$ \\
+\cmidrule(lr){2-8}
+ & Small & Contr. & 0.465 & $-0.064**$ & $-0.052**$ & $-0.005$ & $-0.002$ \\
+\midrule
+\multirow{4}{*}{LaMP-6} & Base & BM25 & 0.473 & $-0.078**$ & $-0.063**$ & $-0.021$ & $-0.006$ \\
+\cmidrule(lr){2-8}
+ & Base & Contr. & 0.444 & $-0.050**$ & $-0.040*$ & $-0.005$ & $-0.000$ \\
+\cmidrule(lr){2-8}
+ & Small & BM25 & 0.442 & $-0.073**$ & $-0.055**$ & $-0.007$ & $-0.002$ \\
+\cmidrule(lr){2-8}
+ & Small & Contr. & 0.424 & $-0.053**$ & $-0.040*$ & $-0.003$ & $+0.000$ \\
+\midrule
+\multirow{4}{*}{LaMP-7} & Base & BM25 & 0.675 & $-0.017$ & $-0.014$ & $-0.014$ & $-0.006$ \\
+\cmidrule(lr){2-8}
+ & Base & Contr. & 0.645 & $+0.008$ & $+0.000$ & $+0.007$ & $+0.001$ \\
+\cmidrule(lr){2-8}
+ & Small & BM25 & 0.535 & $-0.004$ & $-0.003$ & $+0.006$ & $+0.003$ \\
+\cmidrule(lr){2-8}
+ & Small & Contr. & 0.530 & $-0.005$ & $-0.005$ & $+0.002$ & $-0.001$ \\
+\bottomrule
+\end{tabular}
+\caption{PL: $\Delta$EU$_{\text{norm}}$ vs.\ deterministic by $\alpha$, all 7 tasks
+$\times$ 4 cells. Full data in \texttt{eu\_delta\_by\_setting\_wide.csv} /
+\texttt{eu\_delta\_by\_setting\_long.csv}.}
+\label{tab:delta-pl}
+\end{table}
+
+\begin{table}[p]
+\centering
+\tiny
+\begin{tabular}{@{}lllrrrrrrrr@{}}
+\toprule
+Task & Gen. & Ranker & Base & $\lambda{=}0.3$ & $\lambda{=}0.45$ & $\lambda{=}0.55$ & $\lambda{=}0.7$ & $\lambda{=}0.85$ & $\lambda{=}0.9$ & $\lambda{=}0.95$ \\
+\midrule
+\multirow{4}{*}{LaMP-1} & Base & BM25 & 0.681 & $-0.034$ & $-0.022$ & $-0.022$ & $-0.009$ & $-0.004$ & $-0.009$ & $+0.000$ \\
+\cmidrule(lr){2-11}
+ & Base & Contr. & 0.642 & $-0.017$ & $-0.013$ & $+0.009$ & $+0.004$ & $+0.000$ & $-0.009$ & $-0.009$ \\
+\cmidrule(lr){2-11}
+ & Small & BM25 & 0.451 & $-0.020$ & $-0.039$ & $-0.039$ & $-0.039$ & $+0.000$ & $+0.000$ & $+0.000$ \\
+\cmidrule(lr){2-11}
+ & Small & Contr. & 0.431 & $+0.020$ & $+0.000$ & $+0.000$ & $+0.000$ & $+0.020$ & $+0.000$ & $+0.000$ \\
+\midrule
+\multirow{4}{*}{LaMP-2} & Base & BM25 & 0.300 & $+0.018$ & $+0.007$ & $-0.011$ & $+0.007$ & $-0.004$ & $-0.007$ & $-0.004$ \\
+\cmidrule(lr){2-11}
+ & Base & Contr. & 0.307 & $+0.036$ & $+0.025$ & $+0.021$ & $+0.004$ & $+0.011$ & $+0.007$ & $+0.007$ \\
+\cmidrule(lr){2-11}
+ & Small & BM25 & 0.333 & $-0.053$ & $+0.036$ & $+0.016$ & $-0.103$ & $-0.005$ & $-0.005$ & $+0.000$ \\
+\cmidrule(lr){2-11}
+ & Small & Contr. & 0.375 & $-0.035$ & $+0.016$ & $+0.005$ & $-0.075$ & $+0.010$ & $+0.010$ & $+0.000$ \\
+\midrule
+\multirow{4}{*}{LaMP-3} & Base & BM25 & 0.923 & $-0.003$ & $+0.000$ & $-0.002$ & $+0.003$ & $+0.002$ & $-0.000$ & $-0.002$ \\
+\cmidrule(lr){2-11}
+ & Base & Contr. & 0.927 & $+0.002$ & $+0.002$ & $+0.005$ & $+0.006$ & $+0.006$ & $+0.005$ & $+0.002$ \\
+\cmidrule(lr){2-11}
+ & Small & BM25 & 0.906 & $-0.023$ & $-0.018$ & $-0.009$ & $-0.013$ & $-0.002$ & $-0.002$ & $+0.001$ \\
+\cmidrule(lr){2-11}
+ & Small & Contr. & 0.897 & $-0.023$ & $-0.005$ & $+0.003$ & $-0.006$ & $+0.001$ & $+0.001$ & $+0.002$ \\
+\midrule
+\multirow{4}{*}{LaMP-4} & Base & BM25 & 0.291 & $+0.004$ & $+0.005$ & $+0.003$ & $+0.005$ & $+0.002$ & $+0.003$ & $+0.004$ \\
+\cmidrule(lr){2-11}
+ & Base & Contr. & 0.340 & $+0.000$ & $-0.010$ & $-0.004$ & $-0.000$ & $-0.003$ & $+0.000$ & $-0.000$ \\
+\cmidrule(lr){2-11}
+ & Small & BM25 & 0.297 & $-0.082**$ & $+0.009$ & $+0.017$ & $-0.090**$ & $+0.006$ & $+0.003$ & $+0.003$ \\
+\cmidrule(lr){2-11}
+ & Small & Contr. & 0.326 & $-0.024$ & $-0.004$ & $-0.005$ & $-0.034$ & $-0.001$ & $-0.000$ & $-0.000$ \\
+\midrule
+\multirow{4}{*}{LaMP-5} & Base & BM25 & 0.531 & $+0.013$ & $+0.006$ & $+0.017$ & $+0.016$ & $+0.009$ & $+0.005$ & $+0.004$ \\
+\cmidrule(lr){2-11}
+ & Base & Contr. & 0.550 & $-0.010$ & $-0.000$ & $-0.005$ & $+0.008$ & $+0.010$ & $+0.009$ & $+0.008$ \\
+\cmidrule(lr){2-11}
+ & Small & BM25 & 0.458 & $+0.041$ & $+0.008$ & $+0.009$ & $+0.066$ & $-0.002$ & $-0.002$ & $-0.003$ \\
+\cmidrule(lr){2-11}
+ & Small & Contr. & 0.465 & $-0.001$ & $-0.016$ & $-0.004$ & $+0.023$ & $-0.012$ & $-0.005$ & $+0.003$ \\
+\midrule
+\multirow{4}{*}{LaMP-6} & Base & BM25 & 0.473 & $-0.009$ & $-0.009$ & $-0.006$ & $-0.003$ & $-0.004$ & $-0.004$ & $-0.001$ \\
+\cmidrule(lr){2-11}
+ & Base & Contr. & 0.444 & $-0.020$ & $-0.007$ & $+0.004$ & $-0.010$ & $-0.003$ & $-0.008$ & $+0.004$ \\
+\cmidrule(lr){2-11}
+ & Small & BM25 & 0.442 & $-0.032$ & $-0.022$ & $-0.009$ & $+0.020$ & $+0.002$ & $+0.004$ & $-0.001$ \\
+\cmidrule(lr){2-11}
+ & Small & Contr. & 0.424 & $-0.057$ & $+0.018$ & $+0.018$ & $-0.046$ & $+0.008$ & $+0.008$ & $-0.002$ \\
+\midrule
+\multirow{4}{*}{LaMP-7} & Base & BM25 & 0.675 & $-0.034$ & $-0.025$ & $-0.011$ & $-0.000$ & $-0.010$ & $-0.004$ & $-0.005$ \\
+\cmidrule(lr){2-11}
+ & Base & Contr. & 0.645 & $+0.004$ & $-0.006$ & $-0.009$ & $-0.008$ & $-0.002$ & $+0.000$ & $+0.005$ \\
+\cmidrule(lr){2-11}
+ & Small & BM25 & 0.535 & $-0.021$ & $-0.026$ & $-0.019$ & $-0.010$ & $-0.010$ & $-0.009$ & $-0.010$ \\
+\cmidrule(lr){2-11}
+ & Small & Contr. & 0.530 & $-0.045$ & $-0.022$ & $-0.011$ & $-0.022$ & $-0.008$ & $-0.003$ & $-0.002$ \\
+\bottomrule
+\end{tabular}
+\caption{MMR: $\Delta$EU$_{\text{norm}}$ vs.\ deterministic by $\lambda$, all 7
+tasks $\times$ 4 cells, now including $\lambda{=}0.9$ and $\lambda{=}0.95$ (both
+added 2026-08-18). Full data in \texttt{eu\_delta\_by\_setting\_wide.csv} /
+\texttt{eu\_delta\_by\_setting\_long.csv}.}
+\label{tab:delta-mmr}
+\end{table}
+
+\end{document}

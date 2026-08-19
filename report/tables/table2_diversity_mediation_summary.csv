@@ -1,5 +1,5 @@
 cutoff,approach,n_cells,n_significant,n_pos,n_neg
-bottom25,A (parameter),56,2,0,2
-bottom25,B (outcome),56,7,4,3
-bottom50,A (parameter),56,4,2,2
-bottom50,B (outcome),56,7,0,7
+bottom25,A (parameter),56,3,0,3
+bottom25,B (outcome),56,3,0,3
+bottom50,A (parameter),56,2,0,2
+bottom50,B (outcome),56,3,0,3

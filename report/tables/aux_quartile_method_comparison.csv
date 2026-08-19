@@ -1,0 +1,5 @@
+lamp_num,generator,ranker,n_cell,A_cell_pooled,B_dataset_wide,C_query_specific
+2,flanT5Base,contriever,1400,"degenerate (3 bins, not 4)","n_Q1=5, delta=+0.0929, p=0.7251","n_Q1=18, delta=+0.1373, p=0.2808"
+2,flanT5Small,contriever,776,"degenerate (3 bins, not 4)","n_Q1=3, delta=-0.3750, p=nan","n_Q1=11, delta=-0.1023, p=0.4953"
+4,flanT5Base,bm25,4135,"n_Q1=1035, delta=+0.0035, p=0.8011","n_Q1=628, delta=+0.0215, p=0.1602","n_Q1=128, delta=+0.0013, p=0.9647"
+7,flanT5Base,contriever,1055,"n_Q1=265, delta=-0.0006, p=0.9825","n_Q1=81, delta=+0.0774, p=0.0371*","n_Q1=37, delta=+0.0664, p=0.1485"

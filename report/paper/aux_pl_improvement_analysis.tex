@@ -1,0 +1,240 @@
+\documentclass[10pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{amsmath}
+\usepackage{array}
+\usepackage{placeins}
+\usepackage{graphicx}
+\usepackage{hyperref}
+
+\title{Where Does PL Actually Beat Deterministic?\\A Query-Level Investigation of the EE-D-Interval Table}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\noindent\textbf{This is a working diagnostic document, not part of the paper.} The
+paper's EE-D-interval table (Table~\ref{tab:baseline-repro} below, reproducing
+\texttt{tab:baseline} in \texttt{fair\_rag\_diversity\_paper.tex}) bins PL's utility
+gain over deterministic by EE-D disparity interval, pooled across all four
+$\alpha$, for the two tasks it covers (LaMP-1 and LaMP-4, the only tasks with a
+published source-paper baseline to compare against). Some of those bins are
+\emph{positive} --- PL beats deterministic on average. This document asks: what is
+actually different about the queries in those bins? Specifically:
+\begin{enumerate}
+  \item Is it just a handful of queries and sampling noise?
+  \item Did deterministic's top-5 already contain an unusually high fraction of
+    genuinely useful documents?
+  \item Did deterministic fail to retrieve anything useful, leaving PL nowhere to
+    go but up?
+  \item Does MMR show the same pattern on the identical queries, or is this
+    specific to PL?
+\end{enumerate}
+\textbf{No new experiments were run.} Everything here is computed from already-completed
+runs under \texttt{experiment\_runs/}, using the same with-gold EU$_{\text{norm}}$
+normalization (\texttt{analysis.with\_gold\_normalization}) as every other table in
+this project. ``Useful'' document means a profile item with
+\texttt{relevance\_label}${}=1$ in this project's utility-delta relevance mapping
+(\texttt{data/lamp\_utility\_labels\_*/*\_relevance\_mapping.tsv}, built by
+\texttt{utility\_labels/analyze\_delta.py}) --- i.e.\ a document that
+empirically changed that generator's output when swapped in or out, \emph{not}
+topical similarity. \textbf{Notation:} $^*p{<}0.05$, Welch's $t$-test vs.\ the
+cell's full pooled deterministic set, same convention as the main paper.
+
+\section{The Table This Investigates}
+\label{sec:source-table}
+
+\begin{table}[h]
+\centering
+\scriptsize
+\begin{tabular}{@{}lllccccc@{}}
+\toprule
+Task & Gen. & Ranker & [.0,.2) & [.2,.4) & [.4,.6) & [.6,.8) & [.8,1.0] \\
+\midrule
+LaMP-1 & Base & BM25 & $-$0.23* (n{=}341) & $-$0.09* (n{=}131) & $-$0.05 (n{=}42) & $-$0.05 (n{=}106) & $-$0.02 (n{=}296) \\
+LaMP-1 & Base & Contr. & $-$0.15* (n{=}363) & $+$0.01 (n{=}91) & $-$0.07 (n{=}63) & $+$0.05 (n{=}132) & $+$0.01 (n{=}255) \\
+LaMP-1 & Small & BM25 & $-$0.09 (n{=}68) & $-$0.14 (n{=}1) & $+$0.01 (n{=}7) & $+$0.03 (n{=}17) & $-$0.01 (n{=}43) \\
+LaMP-1 & Small & Contr. & $-$0.05 (n{=}60) & $-$0.15* (n{=}9) & $-$0.10 (n{=}11) & $+$0.14 (n{=}17) & $-$0.02 (n{=}39) \\
+LaMP-4 & Base & BM25 & $-$0.08* (n{=}1040) & $-$0.02 (n{=}379) & $+$0.02 (n{=}347) & $+$0.00 (n{=}484) & $-$0.00 (n{=}1054) \\
+LaMP-4 & Base & Contr. & $-$0.13* (n{=}1080) & $-$0.04* (n{=}336) & $-$0.00 (n{=}402) & $-$0.01 (n{=}463) & $+$0.00 (n{=}1023) \\
+LaMP-4 & Small & BM25 & $-$0.11* (n{=}142) & $-$0.02 (n{=}47) & $-$0.01 (n{=}34) & $-$0.05 (n{=}71) & $-$0.00 (n{=}838) \\
+LaMP-4 & Small & Contr. & $-$0.10* (n{=}1110) & $-$0.04* (n{=}335) & $-$0.01 (n{=}400) & $+$0.02 (n{=}450) & $+$0.00 (n{=}1037) \\
+\bottomrule
+\end{tabular}
+\caption{$\Delta$EU$_{\text{norm}}$ vs.\ deterministic by EE-D interval, pooled
+across all four PL $\alpha$ (reproducing the paper's Table~\ref{tab:baseline-repro}
+body, with $n$ --- number of (qid,$\alpha$) observations in that bin --- added).
+Matches \texttt{report/tables/pl\_improve\_bin\_summary.csv}.}
+\label{tab:baseline-repro}
+\end{table}
+
+Of these 40 (cell, bin) combinations, \textbf{11 are positive and 29 are negative}.
+\textbf{Zero of the 11 positive bins are statistically significant} (all
+$p\geq0.17$); all 10 significant bins in the table are negative. So in the strict
+sense, no cell of this table contains a defensible instance of ``PL significantly
+beats deterministic'' --- every positive number here is, by the table's own
+significance test, indistinguishable from noise. That is itself the headline
+answer to question 1, and the rest of this document looks at whether the noise is
+at least \emph{structured} --- landing preferentially on a particular kind of
+query rather than being uniform.
+
+\FloatBarrier
+\section{What's Different About the Queries in the Positive Bins}
+\label{sec:detail}
+
+Table~\ref{tab:detail} gives the full detail for all 11 positive bins, sorted by
+effect size. Two columns matter most: \texttt{cell\_relevant} is the average
+fraction of useful documents in deterministic's top-5, averaged over \emph{every}
+query in that cell (all 5 bins together); \texttt{bin\_relevant} is that same
+average restricted to \emph{just} the queries that landed in this specific bin.
+Same idea for \texttt{cell\_det\_EU}/\texttt{bin\_det\_EU}, but for deterministic's
+own EU$_{\text{norm}}$ instead of retrieval quality.
+
+\begin{table}[h]
+\centering
+\tiny
+\begin{tabular}{@{}lllccrrrrrrrr@{}}
+\toprule
+Task & Gen. & Ranker & Bin & $n_{\text{obs}}$/$n_{\text{qid}}$ & $\Delta_{\text{PL}}$ & $p$ & cell\_relevant & bin\_relevant & bin\_PL\_relevant & cell\_det\_EU & bin\_det\_EU & $\Delta_{\text{MMR}}^{\text{same qids}}$ \\
+\midrule
+LaMP-1 & Small & Contr. & [.6,.8) & 17/17 & $+$0.144 & 0.19 & 0.235 & 0.341 & 0.326 & 0.147 & 0.294 & $+$0.012 \\
+LaMP-1 & Base & Contr. & [.6,.8) & 132/132 & $+$0.054 & 0.25 & 0.372 & 0.382 & 0.375 & 0.633 & 0.674 & $-$0.017 \\
+LaMP-1 & Small & BM25 & [.6,.8) & 17/16 & $+$0.029 & 0.79 & 0.235 & 0.362 & 0.330 & 0.176 & 0.188 & $-$0.062 \\
+LaMP-4 & Base & BM25 & [.4,.6) & 347/281 & $+$0.021 & 0.17 & 0.356 & 0.389 & 0.395 & 0.290 & 0.320 & $+$0.007 \\
+LaMP-4 & Small & Contr. & [.6,.8) & 450/409 & $+$0.019 & 0.19 & 0.361 & 0.355 & 0.377 & 0.326 & 0.320 & $+$0.002 \\
+LaMP-1 & Small & BM25 & [.4,.6) & 7/7 & $+$0.014 & 0.93 & 0.235 & 0.257 & 0.240 & 0.176 & 0.286 & $-$0.057 \\
+\addlinespace
+LaMP-1 & Base & Contr. & [.8,1.0] & 255/225 & $+$0.009 & 0.84 & 0.372 & 0.380 & 0.386 & 0.633 & 0.631 & $-$0.004 \\
+LaMP-1 & Base & Contr. & [.2,.4) & 91/77 & $+$0.007 & 0.87 & 0.372 & 0.418 & 0.324 & 0.633 & 0.636 & $-$0.010 \\
+LaMP-4 & Base & BM25 & [.6,.8) & 484/443 & $+$0.005 & 0.77 & 0.356 & 0.356 & 0.371 & 0.290 & 0.281 & $+$0.004 \\
+LaMP-4 & Small & Contr. & [.8,1.0] & 1037/827 & $+$0.002 & 0.86 & 0.361 & 0.360 & 0.378 & 0.326 & 0.325 & $-$0.003 \\
+LaMP-4 & Base & Contr. & [.8,1.0] & 1023/820 & $+$0.002 & 0.89 & 0.434 & 0.434 & 0.441 & 0.339 & 0.338 & $-$0.004 \\
+\bottomrule
+\end{tabular}
+\caption{All 11 positive bins, full detail. $n_{\text{obs}}$ is (qid,$\alpha$)
+observations, $n_{\text{qid}}$ is unique queries (they differ when one query lands
+in the same bin at two different $\alpha$'s). Split by a blank row into the 6 bins
+with a meaningful effect size ($\Delta_{\text{PL}}\geq0.01$) and the 5 that are
+themselves near-zero. Full data in \texttt{pl\_improve\_bin\_detail}.csv.}
+\label{tab:detail}
+\end{table}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\textwidth]{fig_pl_improvement_bins.png}
+\caption{Left: PL's own delta vs.\ MMR's delta on the identical queries. Middle:
+fraction of useful documents in deterministic's top-5, this bin vs.\ the cell-wide
+average. Right: deterministic's own EU$_{\text{norm}}$, this bin vs.\ the cell-wide
+average. Rows ordered by PL's effect size (same order as Table~\ref{tab:detail}).}
+\label{fig:bins}
+\end{figure}
+
+\FloatBarrier
+\subsection*{Question 1: is it just a few queries and noise?}
+Partially, and it's worth separating two different things sample size affects.
+Some of the 11 bins genuinely are tiny --- 17, 17, and 7 queries in the three
+smallest --- and at those sizes a $+0.03$--$+0.14$ swing is well within normal
+sampling variation for a per-query metric this noisy. But the effect-size split in
+Table~\ref{tab:detail} does \emph{not} track sample size: the largest bin
+(LaMP-4/Base/Contr., $n{=}1023$ unique queries) has one of the smallest effects
+($+0.002$), while a mid-sized bin (LaMP-1/Base/Contr., $n{=}132$) has the
+second-largest ($+0.054$). And critically, \textbf{even the large-$n$ bins never
+reach significance} --- $n{=}1023$ and $p{=}0.89$ is not ``needs more data,'' it's
+``the true effect at this size is close to zero.'' So the honest reading is: the 5
+near-zero bins ($\Delta_{\text{PL}}{<}0.01$) are just noise around zero, full stop,
+regardless of their $n$; the 6 larger bins are \emph{not} explained by small
+samples alone (three of them have $n{\geq}132$), but none of them clears
+significance either, so ``noise'' remains the statistically correct label even
+there --- the question below is whether that noise is at least non-random in
+\emph{where} it lands.
+
+\subsection*{Question 2: was the \% of useful documents relatively high?}
+Yes, cleanly, for the 6 bins with a real effect size. In \textbf{all 6}, deterministic's
+own top-5 already contained a higher fraction of useful documents than that cell's
+average query (e.g.\ LaMP-4/Base/BM25: 0.389 in-bin vs.\ 0.356 cell-wide; LaMP-1/Small/Contr.:
+0.341 vs.\ 0.235 --- close to 50\% relatively higher). This pattern disappears for the
+5 near-zero bins (only 2 of 5 show any elevation, and it's marginal in both).
+Notably, PL's \emph{own} retrieved lists in the effect-size bins (\texttt{bin\_PL\_relevant})
+are usually about the same as deterministic's, not higher --- PL is not
+systematically finding more useful documents than deterministic already found for
+these queries. The elevation is a property of \emph{which queries land in this EE-D
+range}, not something PL's reranking adds on top. A plausible mechanism: queries
+with more useful documents scattered through the candidate pool (rather than
+concentrated at the very top) are the queries where repeated PL sampling disagrees
+with itself the most --- which is exactly what raises EE-D --- and where swapping
+one adequate document for another adequate one costs little to nothing, so PL's
+variance nets out roughly neutral-to-positive instead of costly.
+
+\subsection*{Question 3: did deterministic just not find anything useful in top-5?}
+No --- if anything, close to the opposite. In 5 of the 6 effect-size bins,
+deterministic's own EU$_{\text{norm}}$ in that bin is \emph{higher} than the
+cell-wide average (LaMP-1/Small/Contr.: 0.294 vs.\ 0.147, roughly double;
+LaMP-1/Base/Contr.: 0.674 vs.\ 0.633; LaMP-4/Base/BM25: 0.320 vs.\ 0.290). The one
+exception, LaMP-4/Small/Contr.\ [.6,.8), is close to flat (0.320 vs.\ 0.326, a
+trivial difference). So this hypothesis is not supported: PL's positive bins are
+\emph{not} where deterministic was struggling and had nowhere to go but up. They
+skew toward queries where deterministic was already doing relatively well, and PL
+edges it further --- a genuinely counter-intuitive result relative to the
+hypothesis, worth flagging explicitly rather than quietly not mentioning it.
+
+\FloatBarrier
+\section{Does MMR Show the Same Pattern on the Same Queries?}
+\label{sec:mmr-compare}
+
+The rightmost column of Table~\ref{tab:detail} and the left panel of
+Figure~\ref{fig:bins} answer this directly: MMR's $\Delta$EU$_{\text{norm}}$ on the
+\emph{identical} query sets (pooled across MMR's own 5 $\lambda$'s, same
+with-gold normalization), compared to PL's on those same queries.
+
+\textbf{MMR does not replicate PL's pattern.} Across the 11 bins, MMR is negative
+in 7 and positive in only 4; averaged over all 11, PL's mean delta is $+0.028$
+while MMR's is $-0.012$ --- opposite sign. In the three largest-effect bins
+specifically, MMR is negative in two of three and, even where positive
+(LaMP-1/Small/Contr.: $+0.012$), an order of magnitude smaller than PL's $+0.144$
+on the same 17 queries. This means whatever is happening in these bins is not
+simply ``these particular queries are easy to improve on regardless of method''
+--- it is specific to PL's stochastic, resample-many-times mechanism. MMR's
+deterministic greedy selection, applied to the same queries, mostly does not
+capture it and sometimes loses ground where PL gains. This is consistent with
+this project's other finding (Section 3 of \texttt{aux\_diagnostics.pdf}) that
+PL's positive bins are well explained by ``which setting dominates the bin,''
+while MMR's effects are compositionally distinct --- here we see the same
+asymmetry from the opposite direction: PL's own positive bins do not transfer to
+MMR even on identical queries.
+
+\FloatBarrier
+\section{Summary}
+\label{sec:summary}
+
+\begin{itemize}
+  \item \textbf{None of the 11 positive EE-D-interval bins for PL are
+    statistically significant} ($p\geq0.17$ throughout); every significant result
+    in the table is negative. Read strictly, the table contains zero evidence
+    that PL beats deterministic anywhere.
+  \item Sample size explains the 5 smallest-effect bins (all $\Delta_{\text{PL}}{<}0.01$,
+    indistinguishable from zero) but \emph{not} the 6 larger ones --- three of
+    those have $n{\geq}132$ unique queries and still show a real point estimate,
+    just not enough to clear significance at this project's scale.
+  \item Those 6 larger-effect bins consistently over-represent queries where
+    deterministic's own top-5 already had an above-average fraction of useful
+    (utility-delta-labeled) documents, and where deterministic's own utility was
+    already above the cell average --- the opposite of ``deterministic failed to
+    find anything useful.'' PL is not adding more useful documents than
+    deterministic found; it is landing, by chance across its samples, on
+    comparably-useful alternatives for queries where several adequate options
+    exist.
+  \item MMR does not show this pattern on the same queries --- it is specific to
+    PL's sampling mechanism, not a general property of these queries being
+    ``easy.''
+\end{itemize}
+
+The overall picture: PL's apparent wins in the EE-D-interval table are real point
+estimates but statistically indistinguishable from noise, and that noise is not
+uniformly distributed --- it concentrates on relevance-rich queries where
+deterministic was already relatively strong. That is a suggestive characterization
+of \emph{where} PL's variance happens to land favorably, not evidence of a
+systematic mechanism by which PL improves retrieval quality.
+
+\end{document}

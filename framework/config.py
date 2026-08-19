@@ -38,12 +38,22 @@ class RetrievalConfig:
 
 @dataclass
 class RerankConfig:
-    method: str = "pl"                  # "pl" (Plackett-Luce) | "mmr" | "deterministic"
+    method: str = "pl"                  # "pl" (Plackett-Luce) | "mmr" | "pl_mmr" | "pl_randmmr" | "pl_xquad" | "deterministic"
     # Plackett-Luce params
     pl_alpha: int = 1                   # temperature α; higher = more deterministic
     pl_samples: int = 10                # N stochastic samples per query
     # MMR params
     mmr_lambda: float = 0.55            # relevance/diversity trade-off (0=max diversity, 1=pure relevance)
+    # pl_randmmr params: rank 1 via pure PL(pl_alpha), ranks 2..k via the same
+    # diversity-penalized sampling as pl_mmr but with lambda drawn fresh per sample
+    # from Uniform(pl_randmmr_lambda_low, pl_randmmr_lambda_high)
+    pl_randmmr_lambda_low: float = 0.7
+    pl_randmmr_lambda_high: float = 0.9
+    # pl_xquad params: rank 1 via pure PL(pl_alpha), ranks 2..k via xQuAD-style
+    # aspect-novelty sampling (candidates-as-aspects adaptation), lambda drawn fresh
+    # per sample from Uniform(pl_xquad_lambda_low, pl_xquad_lambda_high)
+    pl_xquad_lambda_low: float = 0.7
+    pl_xquad_lambda_high: float = 0.9
     # Reproducibility
     seed: int = 42
 
@@ -108,6 +118,14 @@ def setting_id(cfg: RunConfig) -> str:
     elif rr.method == "pl_mmr":
         lambda_str = str(rr.mmr_lambda).replace(".", "")
         rerank_str = f"pl_mmr_a{rr.pl_alpha}_l{lambda_str}_s{rr.pl_samples}"
+    elif rr.method == "pl_randmmr":
+        lo_str = str(rr.pl_randmmr_lambda_low).replace(".", "")
+        hi_str = str(rr.pl_randmmr_lambda_high).replace(".", "")
+        rerank_str = f"pl_randmmr_a{rr.pl_alpha}_l{lo_str}to{hi_str}_s{rr.pl_samples}"
+    elif rr.method == "pl_xquad":
+        lo_str = str(rr.pl_xquad_lambda_low).replace(".", "")
+        hi_str = str(rr.pl_xquad_lambda_high).replace(".", "")
+        rerank_str = f"pl_xquad_a{rr.pl_alpha}_l{lo_str}to{hi_str}_s{rr.pl_samples}"
     else:
         rerank_str = "det"
 
@@ -132,6 +150,16 @@ def list_id_for_pl_mmr(qid: str, sample_idx: int) -> str:
 def list_id_for_mmr(qid: str) -> str:
     """Retrieval list ID for a deterministic MMR reranking."""
     return f"{qid}__mmr"
+
+
+def list_id_for_pl_randmmr(qid: str, sample_idx: int) -> str:
+    """Retrieval list ID for the i-th PL-then-random-lambda-MMR hybrid sample."""
+    return f"{qid}__pl_randmmr_s{sample_idx:03d}"
+
+
+def list_id_for_pl_xquad(qid: str, sample_idx: int) -> str:
+    """Retrieval list ID for the i-th PL-then-random-lambda-xQuAD hybrid sample."""
+    return f"{qid}__pl_xquad_s{sample_idx:03d}"
 
 
 def list_id_for_deterministic(qid: str) -> str:

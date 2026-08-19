@@ -38,8 +38,9 @@ sys.path.insert(0, ROOT)
 os.chdir(ROOT)
 
 from framework import build_query_metric_rows, list_run_dirs
-from analysis import select_consistent_precision, normalize_query_rows
+from analysis import select_consistent_precision, select_best_precision
 from analysis.loading import select_full_coverage_runs
+from analysis.with_gold_normalization import normalize_query_rows_with_gold
 
 TABLE_DIR = os.path.join(ROOT, "report", "tables")
 os.makedirs(TABLE_DIR, exist_ok=True)
@@ -47,7 +48,7 @@ os.makedirs(TABLE_DIR, exist_ok=True)
 GENERATORS = ["flanT5Small", "flanT5Base"]
 RANKERS = ["bm25", "contriever"]
 PL_ALPHAS = [1.0, 2.0, 4.0, 8.0]
-MMR_LAMBDAS = [0.15, 0.3, 0.45, 0.55, 0.7, 0.85]  # excludes the degenerate 1.0
+MMR_LAMBDAS = [0.3, 0.45, 0.55, 0.7, 0.85]  # excludes the degenerate 1.0 and 0.15 (too few Q1 lists to be reliable)
 
 GRANULARITIES = [
     ("gen_x_ranker", ["generator_name", "ranker"]),
@@ -72,9 +73,21 @@ def sig_stars(p):
 
 print("Loading run data...")
 run_dirs = list_run_dirs()
-raw_df = pd.DataFrame(build_query_metric_rows(run_dirs))
-raw_df = select_full_coverage_runs(raw_df)
-raw_df = raw_df[raw_df["generator_name"].isin(GENERATORS) & raw_df["ranker"].isin(RANKERS)]
+all_rows_df = pd.DataFrame(build_query_metric_rows(run_dirs))
+all_rows_df = select_full_coverage_runs(all_rows_df)
+# A handful of LaMP-1/LaMP-4 settings have a stray seed=43 duplicate run
+# alongside the canonical seed=42 one; select_consistent_precision/select_best_precision
+# pool by N but don't dedupe across seeds, so leaving both in would silently
+# double-count those settings' queries. seed=42 is the project standard
+# everywhere else, so pin to it explicitly.
+all_rows_df = all_rows_df[all_rows_df["seed"] == 42]
+
+# Full-precision frame (incl. the gold ranker) used only to build each cell's
+# with-gold EU ceiling - independent of whatever N-pooling the comparison data
+# below uses, matching how experiments/table4_with_gold.py sources ceilings.
+ceiling_source_df = select_best_precision(all_rows_df.copy())
+
+raw_df = all_rows_df[all_rows_df["generator_name"].isin(GENERATORS) & all_rows_df["ranker"].isin(RANKERS)]
 raw_df = raw_df[
     (raw_df["rerank_method"] == "deterministic")
     | ((raw_df["rerank_method"] == "pl") & (raw_df["pl_alpha"].isin(PL_ALPHAS)))
@@ -84,7 +97,8 @@ raw_df = select_consistent_precision(
     raw_df, group_cols=["lamp_num"], setting_cols=["generator_name", "ranker", "pl_alpha"],
 )
 
-qn = normalize_query_rows(raw_df)
+cells = raw_df[["lamp_num", "generator_name", "ranker"]].drop_duplicates().itertuples(index=False, name=None)
+qn = normalize_query_rows_with_gold(raw_df, ceiling_source_df, cells=list(cells))
 qn["expected_utility_norm"] = pd.to_numeric(qn["expected_utility_norm"], errors="coerce")
 qn["avg_ild_jaccard_norm"] = pd.to_numeric(qn["avg_ild_jaccard_norm"], errors="coerce")
 qn["_setting"] = np.where(
@@ -293,7 +307,86 @@ def build_task_pooled_quartiles():
     return out
 
 
+CELL_GENERATORS = ["flanT5Base", "flanT5Small"]
+CELL_RANKERS = ["bm25", "contriever"]
+GEN_SHORT = {"flanT5Small": "T5-Small", "flanT5Base": "T5-Base"}
+RANKER_SHORT = {"bm25": "BM25", "contriever": "Contr."}
+
+
+def build_cell_quartiles(tasks=(1, 4), out_filename="rq2_quartile_table_lamp1_lamp4_by_cell.csv"):
+    """Per-(task, generator, ranker, method) view for the paper's headline value-range
+    table (Table 2, LaMP-1/LaMP-4): unlike build_task_pooled_quartiles, does NOT pool
+    the four generator x ranker cells together. Each cell gets its own ILD_norm
+    quartile boundaries from its own PL/MMR output distribution, and its own
+    deterministic baseline."""
+    rows = []
+    for task in tasks:
+        task_df = qn[qn["lamp_num"] == task]
+        for gen in CELL_GENERATORS:
+            for ranker in CELL_RANKERS:
+                cell_df = task_df[(task_df["generator_name"] == gen) & (task_df["ranker"] == ranker)]
+                det_vals = cell_df[cell_df["rerank_method"] == "deterministic"]["expected_utility_norm"].dropna()
+                if det_vals.empty:
+                    continue
+                baseline = float(det_vals.mean())
+                for method in ("pl", "mmr"):
+                    divers_df = cell_df[cell_df["rerank_method"] == method].dropna(
+                        subset=["avg_ild_jaccard_norm", "expected_utility_norm"]
+                    )
+                    if divers_df.empty:
+                        continue
+                    edges = divers_df["avg_ild_jaccard_norm"].quantile([0.0, 0.25, 0.5, 0.75, 1.0]).tolist()
+                    edges = list(np.unique(edges))
+                    if len(edges) < 2:
+                        continue
+                    cut_edges = edges.copy()
+                    cut_edges[0] -= 1e-9
+                    cut_edges[-1] += 1e-9
+                    n_bins = len(cut_edges) - 1
+                    labels = QUARTILE_LABELS if n_bins == 4 else [f"bin {i + 1}/{n_bins}" for i in range(n_bins)]
+                    divers_df = divers_df.copy()
+                    divers_df["_bin"] = pd.cut(divers_df["avg_ild_jaccard_norm"], bins=cut_edges, labels=labels, include_lowest=True)
+
+                    row = {"lamp_num": int(task), "generator_name": gen, "ranker": ranker, "method": method,
+                           "baseline_eu_norm": baseline, "n_baseline": int(len(det_vals))}
+                    for i, label in enumerate(labels):
+                        lo, hi = edges[i], edges[i + 1]
+                        bin_vals = divers_df.loc[divers_df["_bin"] == label, "expected_utility_norm"].dropna()
+                        if bin_vals.empty:
+                            row[f"{label}_lo"] = None
+                            row[f"{label}_hi"] = None
+                            row[f"{label}_delta"] = None
+                            row[f"{label}_n"] = 0
+                            row[f"{label}_sig"] = ""
+                            continue
+                        p = welch(bin_vals, det_vals)
+                        row[f"{label}_lo"] = lo
+                        row[f"{label}_hi"] = hi
+                        row[f"{label}_delta"] = float(bin_vals.mean() - baseline)
+                        row[f"{label}_n"] = int(len(bin_vals))
+                        row[f"{label}_sig"] = sig_stars(p)
+                    rows.append(row)
+
+    out = pd.DataFrame(rows)
+    out.to_csv(os.path.join(TABLE_DIR, out_filename), index=False)
+    print(f"\nsaved table: {out_filename} ({len(out)} rows)")
+
+    print("\n% ---- LaTeX table body (by generator x ranker cell) ----")
+    for _, r in out.iterrows():
+        cells = [f"LaMP-{int(r['lamp_num'])}", GEN_SHORT[r["generator_name"]], RANKER_SHORT[r["ranker"]],
+                 r["method"].upper(), f"{r['baseline_eu_norm']:.3f}"]
+        for label in QUARTILE_LABELS:
+            if pd.isna(r.get(f"{label}_lo")):
+                cells.append("n/a")
+                continue
+            cells.append(f"[{r[f'{label}_lo']:.2f},{r[f'{label}_hi']:.2f}] {r[f'{label}_delta']:+.3f}{r[f'{label}_sig']}")
+        print(" & ".join(cells) + r" \\")
+    return out
+
+
 if __name__ == "__main__":
     out = build()
     summarize(out)
     build_task_pooled_quartiles()
+    build_cell_quartiles()
+    build_cell_quartiles(tasks=(1, 2, 3, 4, 5, 6, 7), out_filename="rq2_quartile_table_all_tasks_by_cell.csv")

@@ -15,6 +15,7 @@ from framework.artifacts import RunRegistry
 from framework.cross_run_analysis import (
 	build_macro_comparison_rows,
 	build_query_metric_rows,
+	build_list_metric_rows,
 	list_run_dirs,
 	maybe_to_dataframe,
 )
@@ -33,6 +34,7 @@ __all__ = [
 	"RunRegistry",
 	"build_macro_comparison_rows",
 	"build_query_metric_rows",
+	"build_list_metric_rows",
 	"list_run_dirs",
 	"maybe_to_dataframe",
 ]

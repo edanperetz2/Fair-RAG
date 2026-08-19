@@ -27,6 +27,7 @@ experiment_results/
 
 # local virtual environment
 .venv/
+.venv_analysis/
 
 # local run outputs
 experiment_runs/

@@ -38,7 +38,6 @@ def main(args, print_stat=False):
     LAMP_NUM = args.lamp_num
     SPLIT_TYPE = args.lamp_split_type
     MODEL_NAME = args.model_name
-    DATASET = args.dataset
     DELTA_ANAL_FP = os.path.join(
         CUR_DIR_PATH,
         "eval_results",
@@ -74,7 +73,7 @@ def main(args, print_stat=False):
     filtered_delta_df = delta_df[delta_df["qid"].isin(filtered_qids)]
     del delta_df
     filtered_delta_df["relevance_label"] = (filtered_delta_df["delta"] > 0).astype(int)
-    filtered_delta_df = filtered_delta_df.drop(columns=["delta"], axis=1)
+    filtered_delta_df = filtered_delta_df.drop(columns=["delta"])
     # save to new dataset
     filtered_delta_df.to_csv(
         os.path.join(NEW_DATA_DIR_PATH, f"{LAMP_NUM}_relevance_mapping.tsv"),

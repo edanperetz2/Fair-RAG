@@ -83,6 +83,8 @@ def build_macro_comparison_rows(run_dirs: Iterable[str]) -> List[Dict[str, Any]]
                 "pl_alpha": manifest.get("config", {}).get("rerank", {}).get("pl_alpha"),
                 "pl_samples": manifest.get("config", {}).get("rerank", {}).get("pl_samples"),
                 "mmr_lambda": manifest.get("config", {}).get("rerank", {}).get("mmr_lambda"),
+                "pl_randmmr_lambda_low": manifest.get("config", {}).get("rerank", {}).get("pl_randmmr_lambda_low"),
+                "pl_randmmr_lambda_high": manifest.get("config", {}).get("rerank", {}).get("pl_randmmr_lambda_high"),
                 "top_k": manifest.get("config", {}).get("retrieval", {}).get("top_k"),
                 "num_queries_config": manifest.get("config", {}).get("dataset", {}).get("num_queries"),
                 "run_dir": run_dir,
@@ -113,11 +115,60 @@ def build_query_metric_rows(run_dirs: Iterable[str]) -> List[Dict[str, Any]]:
                     "pl_alpha": manifest.get("config", {}).get("rerank", {}).get("pl_alpha"),
                     "pl_samples": manifest.get("config", {}).get("rerank", {}).get("pl_samples"),
                     "mmr_lambda": manifest.get("config", {}).get("rerank", {}).get("mmr_lambda"),
+                "pl_randmmr_lambda_low": manifest.get("config", {}).get("rerank", {}).get("pl_randmmr_lambda_low"),
+                "pl_randmmr_lambda_high": manifest.get("config", {}).get("rerank", {}).get("pl_randmmr_lambda_high"),
                     "top_k": manifest.get("config", {}).get("retrieval", {}).get("top_k"),
                     "num_queries_config": manifest.get("config", {}).get("dataset", {}).get("num_queries"),
                     "run_dir": run_dir,
                 }
             )
+            rows.append(out)
+    return rows
+
+
+def build_list_metric_rows(run_dirs: Iterable[str]) -> List[Dict[str, Any]]:
+    """
+    Per-(qid, list_id) rows - finer-grained than build_query_metric_rows, which is
+    already aggregated to one row per (qid, run). Joins retrieval_lists.jsonl (doc_ids,
+    det_indices - each list's items' ranks in the base retriever's full candidate
+    ordering, needed for rank-similarity metrics like Kendall tau/RBO against the
+    original ranking) with per_list_metrics.jsonl (eu_score, ild_jaccard) on list_id.
+    """
+    rows: List[Dict[str, Any]] = []
+    for run_dir in run_dirs:
+        manifest = _load_json(os.path.join(run_dir, "manifest.json"))
+        lists_by_id = {
+            r["list_id"]: r for r in _load_jsonl(os.path.join(run_dir, "retrieval_lists.jsonl"))
+        }
+        meta = {
+            "run_id": manifest.get("run_id"),
+            "setting_id": manifest.get("setting_id"),
+            "status": manifest.get("status"),
+            "seed": manifest.get("seed"),
+            "dataset_type": manifest.get("config", {}).get("dataset", {}).get("dataset_type"),
+            "lamp_num": manifest.get("config", {}).get("dataset", {}).get("lamp_num"),
+            "lamp_split_type": manifest.get("config", {}).get("dataset", {}).get("lamp_split_type"),
+            "generator_name": manifest.get("config", {}).get("generation", {}).get("generator_name"),
+            "ranker": manifest.get("config", {}).get("retrieval", {}).get("ranker"),
+            "rerank_method": manifest.get("config", {}).get("rerank", {}).get("method"),
+            "pl_alpha": manifest.get("config", {}).get("rerank", {}).get("pl_alpha"),
+            "pl_samples": manifest.get("config", {}).get("rerank", {}).get("pl_samples"),
+            "mmr_lambda": manifest.get("config", {}).get("rerank", {}).get("mmr_lambda"),
+            "pl_randmmr_lambda_low": manifest.get("config", {}).get("rerank", {}).get("pl_randmmr_lambda_low"),
+            "pl_randmmr_lambda_high": manifest.get("config", {}).get("rerank", {}).get("pl_randmmr_lambda_high"),
+            "top_k": manifest.get("config", {}).get("retrieval", {}).get("top_k"),
+            "num_queries_config": manifest.get("config", {}).get("dataset", {}).get("num_queries"),
+            "run_dir": run_dir,
+        }
+        for plist_row in _load_jsonl(os.path.join(run_dir, "per_list_metrics.jsonl")):
+            list_row = lists_by_id.get(plist_row["list_id"])
+            if list_row is None:
+                continue
+            out = dict(plist_row)
+            out["doc_ids"] = list_row.get("doc_ids")
+            out["det_indices"] = list_row.get("det_indices")
+            out["sample_idx"] = list_row.get("sample_idx")
+            out.update(meta)
             rows.append(out)
     return rows
 
