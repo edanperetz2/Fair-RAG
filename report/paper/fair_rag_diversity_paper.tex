@@ -239,9 +239,8 @@ a classic instance of the fairness/relevance trade-off (left) at all.
 \caption{Textbook vs.\ observed fairness/quality trade-off. \emph{Left:} Diaz et
 al.'s idealized disparity-vs-relevance curve for human users (Figure 3 of
 \cite{diaz2020evaluating}), rising smoothly toward the fully-disparate optimum.
-\emph{Right:} the source paper's own EE-D vs.\ EE-R curve for machine users (Figure
-4a of \cite{eunkim2025fairrag}, LaMP-4), which peaks near EE-D$=0.4$ and declines
-toward EE-D$=1.0$ rather than rising monotonically.}
+\emph{Right:} the source paper's own EE-D vs.\ EE-R curve for machine users
+(Figure 4a of \cite{eunkim2025fairrag}, LaMP-4).}
 \label{fig:diaz-vs-fairrag}
 \end{figure}
 
@@ -309,9 +308,8 @@ predicts utility.
 \begin{figure}[t]
 \centering
 \includegraphics[width=\linewidth]{fig_diversity_lamp4_panel.png}
-\caption{ILD-Jaccard diversity by rerank setting, LaMP-4 (representative; all seven
-tasks show the same qualitative pattern, largest swing on LaMP-6 and smallest on
-LaMP-7). Diamond = mean, black line = median. PL/MMR colors match Figure~\ref{fig:trend}'s legend.}
+\caption{ILD-Jaccard diversity by rerank setting, LaMP-4. Diamond = mean, black
+line = median. PL/MMR colors match Figure~\ref{fig:trend}'s legend.}
 \label{fig:diversity}
 \end{figure}
 
@@ -331,7 +329,7 @@ The key test is whether this diversity increase predicts \emph{higher} utility.
 \caption{$\Delta$EU$_{\text{norm}}$ vs.\ deterministic against realized diversity
 (mean ILD$_{\text{norm}}$ of that setting's own outputs), one point per (task,
 generator, ranker, $\alpha$/$\lambda$) combination, pooled across all 28 cells.
-Lines are least-squares fits per method; neither rises.}
+Lines are least-squares fits per method.}
 \label{fig:trend}
 \end{figure}
 
@@ -362,9 +360,7 @@ PL does when PL wins (mean $+0.006$).
 \centering
 \includegraphics[width=\linewidth]{fig_best_mmr_vs_best_pl.png}
 \caption{Best MMR setting minus best PL setting, per (task, generator, ranker)
-cell --- each method compared at its own best-case $\lambda$/$\alpha$ for that
-cell, not an average. Bars sorted; label = LaMP task. Teal (16 of 28) favors
-MMR; orange (12 of 28) favors PL.}
+cell. Bars sorted; label = LaMP task.}
 \label{fig:paired}
 \end{figure}
 
@@ -408,10 +404,9 @@ beat --- in every one of the 28 cells, that turns out to be $\alpha{=}2$.
 ($\alpha{=}2$ throughout; see text), LaMP-1 and LaMP-4 (macro means). EE-D and EU
 are both normalized per query to $[0,1]$ (EE-D: the paper's own bound; EU: our
 per-query empirical-max EU$_{\text{norm}}$). RandMMR's EE-D is lower (fairer) than
-the matched PL's in every row shown. One of the eight $\Delta$EU values reaches
-significance (Flan-T5-Small/BM25, LaMP-4, $p{<}0.01$, favoring RandMMR); the other
-five LaMP tasks show a similar pattern, given in full in
-Appendix~\ref{app:randmmr-full} (Table~\ref{tab:hybrid-full}).}
+the matched PL's in every row shown; the other five LaMP tasks show a similar
+pattern, given in full in Appendix~\ref{app:randmmr-full}
+(Table~\ref{tab:hybrid-full}).}
 \label{tab:hybrid}
 \begin{tabular}{@{}ll rr r@{}}
 \toprule
