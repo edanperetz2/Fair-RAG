@@ -24,9 +24,9 @@
 \title{\vspace{-1.2em}Does Fairness Improve RAG Performance, or Is It Diversity?\\
 \large A Critical Reproduction and Extension of \emph{Towards Fair RAG}\vspace{-0.3em}}
 
-\author[1]{Idan Peretz}
-\author[1]{Avi Simkin}
-\affil[1]{\normalsize \{308560150, 312485816\}}
+\author{Idan Peretz}
+\author{Avi Simkin}
+\affil{\normalsize \{308560150, 312485816\}}
 \date{}
 
 \begin{document}
@@ -98,11 +98,28 @@ better predicted by ILD than by the fairness dial itself.
 
 \textbf{Fair and stochastic ranking.} Fairness in ranking is not simply fairness in
 classification applied item-by-item: a ranked list's effect on an item is mediated by
-\emph{exposure}, computed via the position-weighted formula defined by Diaz et al.\
-\cite{diaz2020evaluating} rather than by an item's bare relevance. Item-side exposure
-fairness is formalized via the Expected Exposure framework \cite{diaz2020evaluating}, which
-measures a policy's exposure allocation against a fair target using a stochastic
-ranking sampled by the Plackett-Luce (PL) model
+\emph{exposure} \cite{diaz2020evaluating}, the attention a consumer of the list pays to
+each item. Diaz et al.\ \cite{diaz2020evaluating} weight exposure by position under a
+human browsing model with exponential decay; because the ``consumer'' here is the RAG
+generator, Eun Kim and Diaz \cite{eunkim2025fairrag} instead make exposure binary and
+position-independent --- an item counts fully if it lands in the top-$k$ passed to the
+generator's prompt and not at all otherwise, via the machine-user step function
+$\mathrm{MU}(i) = 1[i \le k]$ rather than a decaying weight. Item $d$'s
+\emph{system exposure} is then how often it is sampled into the top $k$ across a policy's
+rankings, $\epsilon_d = \sum_{\pi} p(\pi \mid q)\,\mathrm{MU}(\bar\pi_d)$, compared against
+a \emph{target exposure} $\epsilon^*$ from an oracle policy that always ranks relevant items
+above non-relevant ones, so every relevant item gets the same, higher $\epsilon^*_d$ and
+every non-relevant item the same, lower (possibly zero) one --- exposure allocated strictly
+by relevance, not by an item's particular rank. Expanding the squared distance between the
+two, $\lVert \epsilon - \epsilon^* \rVert_2^2 = \lVert \epsilon \rVert_2^2
+- 2\langle \epsilon, \epsilon^* \rangle + \lVert \epsilon^* \rVert_2^2$, yields the two
+metrics used throughout: Expected Exposure Disparity
+$\mathrm{EE\text{-}D} = \lVert \epsilon \rVert_2^2$, how concentrated the system's own
+exposure is on a few items regardless of relevance (a fully deterministic policy always
+exposes the same top-$k$ items, the maximally unfair extreme), and Expected Exposure
+Relevance $\mathrm{EE\text{-}R} = \langle \epsilon, \epsilon^* \rangle$, how well that
+exposure aligns with the oracle's relevance-based target. Both are computed over a
+stochastic ranking sampled by the Plackett-Luce (PL) model
 \cite{plackett1975analysis,luce1959individual}; the temperature parameter $\alpha$
 that we sweep here controls how close PL sampling is to the deterministic base
 ranking. Castillo \cite{castillo2018fairness} surveys the fairness-transparency
@@ -114,15 +131,7 @@ metrics, and normalization convention (Appendix C of \cite{eunkim2025fairrag}). 
 utility metric, EU, is computed per sampled ranking as the downstream generator's
 task-appropriate score (accuracy, MAE, or ROUGE-L, depending on the LaMP task) when
 conditioned on that ranking's retrieved items, then normalized per query against an
-oracle-ranking upper bound before being averaged across $N$ sampled rankings. Its own
-Figure 4a is worth flagging here: plotting normalized EE-R against EE-D, ranking
-quality does not rise smoothly with disparity the way the fairness/relevance
-tradeoff above would predict --- one retriever (BM25) dips sharply in the
-EE-D$\in[0.6,0.8)$ range after an earlier peak, and none of the three retrievers
-plotted clearly maximizes EE-R at EE-D$=1.0$, the fully deterministic anchor point
-the paper's utility comparisons are measured against. A relationship this
-non-monotonic complicates using that anchor point as the reference for
-``fairness costs nothing'' claims.
+oracle-ranking upper bound before being averaged across $N$ sampled rankings.
 
 \textbf{Diversity in retrieval.} Maximal Marginal Relevance (MMR)
 \cite{carbonell1998use} is the classic deterministic diversity-relevance trade-off
@@ -130,10 +139,6 @@ re-ranker, greedily selecting each next item to maximize $\lambda \cdot
 \mathrm{relevance} - (1-\lambda)\cdot\max\text{-similarity-to-selected}$; we use it
 as a second, non-stochastic diversification arm alongside PL. Intra-list diversity
 via pairwise dissimilarity follows \cite{smyth2001similarity}.
-
-\textbf{Personalization benchmark and models.} We use LaMP
-\cite{salemi2023lamp} as our dataset (Section~\ref{sec:data}) and Flan-T5
-\cite{chung2024scaling} as our generator family, matching \cite{eunkim2025fairrag}.
 
 \section{Dataset}
 \label{sec:data}
@@ -165,9 +170,7 @@ We run two generators (Flan-T5-Small, Flan-T5-Base \cite{chung2024scaling}) and 
 retrievers (BM25, Contriever), against the paper's larger grid (adding SPLADE and
 two larger generators) --- a scope reduction driven by available compute, not
 methodology. Reranking settings are deterministic, a gold/oracle ranker, PL at
-$\alpha \in \{1,2,4,8\}$, and MMR at $\lambda \in \{0.3,0.45,0.55,0.7,0.85\}$ (a sixth
-setting, $\lambda{=}0.15$, was also run but excluded from analysis as too
-diversity-heavy to be informative at the low end the tests below turn on), all
+$\alpha \in \{1,2,4,8\}$, and MMR at $\lambda \in \{0.3,0.45,0.55,0.7,0.85\}$, all
 truncated to $k=5$, matching \cite{eunkim2025fairrag}'s reported $k$.
 
 \subsection{Limitations of the LaMP Ground Truth}
@@ -217,13 +220,30 @@ production RAG generators ($\geq$3B). The source paper's largest, Flan-UL2
 generations behind current deployments. Whether either paper's findings persist at
 production scale is untested by both (see Future Work).
 
-\textbf{The EE-D/EE-R trade-off is not a per-query guarantee.} The same small,
-high-relevance corpus lets PL's aggregate trade-off fail query-by-query while
-holding on average: an individual query's PL EE-R exceeds its deterministic EE-R
-in 29.7\% of observations (37--38\% at $\alpha\in\{1,2,4\}$, still 8.3\% at
-$\alpha{=}8$), though this mostly washes out pooled to a macro mean (14 of 112
-conditions, all $\alpha{=}8$, $\Delta{\leq}0.004$) --- a caution against
-over-interpreting any single query's numbers.
+\textbf{The EE-D/EE-R trade-off barely holds for this dataset.} The same small,
+generator-specific ground truth (previous point) leaves it noisy even in aggregate,
+individual queries and whole conditions alike. Figure~\ref{fig:diaz-vs-fairrag} puts
+this in context: the source paper's own aggregate curve (right) doesn't behave like
+a classic instance of the fairness/relevance trade-off (left) at all.
+
+\begin{figure}[t]
+\centering
+\begin{minipage}{0.46\linewidth}
+\centering
+\includegraphics[width=\linewidth]{fig_diaz2020_fig3_robust.png}
+\end{minipage}\hfill
+\begin{minipage}{0.46\linewidth}
+\centering
+\includegraphics[width=\linewidth]{fig_source_4a_eeD_vs_eeR.png}
+\end{minipage}
+\caption{Textbook vs.\ observed fairness/quality trade-off. \emph{Left:} Diaz et
+al.'s idealized disparity-vs-relevance curve for human users (Figure 3 of
+\cite{diaz2020evaluating}), rising smoothly toward the fully-disparate optimum.
+\emph{Right:} the source paper's own EE-D vs.\ EE-R curve for machine users (Figure
+4a of \cite{eunkim2025fairrag}, LaMP-4), which peaks near EE-D$=0.4$ and declines
+toward EE-D$=1.0$ rather than rising monotonically.}
+\label{fig:diaz-vs-fairrag}
+\end{figure}
 
 \textbf{ROUGE-L is an imperfect stand-in for generation quality.} For the four
 generation tasks (LaMP-4--7), both our utility labels and EU score correctness via
@@ -232,6 +252,16 @@ wrong but lexically similar answer --- errors propagate into ground truth itself
 not just our reported EU. A more faithful LLM-as-judge metric was out of reach at
 this project's scale; ROUGE-L is the standard LaMP metric \cite{salemi2023lamp},
 not a choice specific to either paper.
+
+\textbf{The source paper's own EE-D/EE-R relationship is non-monotonic.} Its Figure
+4a (right panel of Figure~\ref{fig:diaz-vs-fairrag}) plots normalized EE-R against
+EE-D, and ranking quality does not rise smoothly
+with disparity the way the fairness/relevance tradeoff (Section~\ref{sec:related})
+would predict --- one retriever (BM25) dips sharply in the EE-D$\in[0.6,0.8)$ range
+after an earlier peak, and none of the three retrievers plotted clearly maximizes
+EE-R at EE-D$=1.0$, the fully deterministic anchor point the paper's utility
+comparisons are measured against. A relationship this non-monotonic complicates
+using that anchor point as the reference for ``fairness costs nothing'' claims.
 
 \section{Methodology Notes}
 \label{sec:method}
@@ -253,26 +283,17 @@ the paper's own numbers is in Table~\ref{tab:baseline}, Appendix~\ref{app:baseli
 Every EU$_{\text{norm}}$ value in this paper uses the source paper's own per-query
 formula, $\text{EU}_{\text{norm}}(q){=}\text{EU}(q)/\max(\text{gold\_ceiling}(q),
 \text{model\_ceiling}(q))$ (Appendix C of \cite{eunkim2025fairrag}): raw utility
-divided by the higher of a gold-ranked ceiling (3 PL draws over the oracle ranking
-at $\alpha{=}8$, a lower bound on the paper's own fuller stochastic search) and a
+divided by the higher of a gold-ranked ceiling and a
 model ceiling (the best output any rerank method we ran ever produced for that
 query, at that generator and ranker --- PL at any $\alpha$, MMR at any $\lambda$,
 RandMMR, or deterministic, not only PL: Appendix C of \cite{eunkim2025fairrag}
 defines the bound for a fixed $\text{RAG}(R,G,k)$, and every method we run at a
 given $(R,G,k)$ is a real empirical sample of what that same system can produce),
-falling back to $1.0$ when both ceilings are zero.
-
-One MMR setting, $\lambda{=}1.0$, is excluded throughout: at
-$\lambda{=}1$ MMR's diversity term has zero weight, so its greedy selection
-provably reproduces the deterministic ranking exactly --- not a diversification
-condition at all. A second precision control matters at this scale: some
-(generator, ranker, $\alpha$) conditions have more resamples ($N{\in}\{20,30\}$)
-than others ($N{=}10$), which would bias both EU and EE-D toward whichever
-condition has more samples (EE-D is computed jointly over a query's $N$ sampled
-rankings, so higher $N$ converges toward a fairer-looking value independent of the
-reranking policy itself). Every number in Section~\ref{sec:results} instead pools
-all conditions inside one task at a single $N$ shared by every (generator, ranker,
-$\alpha$) triple --- the highest common value, or $N{=}10$ where none is universal.
+falling back to $1.0$ when both ceilings are zero. While the source paper draws
+from $m!(n{-}m)!$ possible permutations of the oracle ranking (Appendix C.3 of
+\cite{eunkim2025fairrag}), we could only afford to draw 3 random ones (via PL
+sampling at $\alpha{=}8$ over the oracle ranking) for EU normalization --- a
+lower, not upper, bound on the paper's own fuller ceiling.
 
 \section{Results}
 \label{sec:results}
@@ -323,66 +344,61 @@ more so ($\rho{=}{-}0.164$, $p{=}0.053$) --- if anything, more diversity trends
 toward \emph{less} utility gain, not more, though PL's downward pull is visibly
 stronger than MMR's across the same range.
 
-A sharper, matched-diversity comparison confirms the same picture at specific
-points: pooled across all 28 (task,
-generator, ranker) cells, PL's $\alpha{=}1$ (mean ILD$_{\text{norm}}$ 0.974) and
-MMR's $\lambda{=}0.45$ (0.971) realize almost identical diversity, yet PL loses
-$-0.041$ ($p{=}0.0003$) against MMR's $-0.004$ (not significant); PL's $\alpha{=}2$
-(0.966) still loses $-0.031$ ($p{=}0.0004$) against MMR's $\lambda{\in}\{0.45,0.55\}$
-neighbors at $-0.004$/$-0.001$ (both not significant). Matched for diversity, MMR
-consistently retains utility that PL does not.
+The same Figure~\ref{fig:trend} also shows that at matched diversity: PL and MMR
+settings that realize almost identical diversity show MMR retaining more
+utility than PL.
 
-A third view drops the diversity-matching altogether: pooling PL's
-$\Delta$EU$_{\text{norm}}$ across all four $\alpha$ values and MMR's across all
-five $\lambda$ values within each of the 28 cells (Figure~\ref{fig:paired}), MMR's
-pooled mean exceeds PL's in 17 of 28, a significant paired difference (Wilcoxon
-$p{=}0.045$; paired $t$-test $p{=}0.025$) --- PL loses $-0.018$ on average against
-MMR's $-0.006$, even with diversity itself no longer part of the comparison.
+A third view compares each method's own best-case setting per cell, rather than
+an average or a single fixed point: for each of the 28 cells, MMR's highest
+$\Delta$EU$_{\text{norm}}$ across its five $\lambda$ values against PL's highest
+across its four $\alpha$ values (Figure~\ref{fig:paired}). MMR's best beats PL's
+best in 16 of 28 cells; the paired difference trends but falls just short of
+significance (Wilcoxon $p{=}0.084$; paired $t$-test $p{=}0.083$). The win
+margins are asymmetric, though: MMR's mean best-case gain ($+0.011$) is nearly
+double PL's ($+0.006$), and when MMR wins it wins by more (mean $+0.013$) than
+PL does when PL wins (mean $+0.006$).
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=\linewidth]{fig_mmr_vs_pl_paired_cells.png}
-\caption{MMR's mean $\Delta$EU$_{\text{norm}}$ (pooled across
-$\lambda\in\{0.3,0.45,0.55,0.7,0.85\}$) minus PL's (pooled across
-$\alpha\in\{1,2,4,8\}$), one bar per (task, generator, ranker) cell, dial setting
-ignored on both sides; bars sorted, labeled by LaMP task. Teal bars (17 of 28)
-favor MMR; orange bars (11 of 28) favor PL.}
+\includegraphics[width=\linewidth]{fig_best_mmr_vs_best_pl.png}
+\caption{Best MMR setting minus best PL setting, per (task, generator, ranker)
+cell --- each method compared at its own best-case $\lambda$/$\alpha$ for that
+cell, not an average. Bars sorted; label = LaMP task. Teal (16 of 28) favors
+MMR; orange (12 of 28) favors PL.}
 \label{fig:paired}
 \end{figure}
 
 Taken together, we could not verify the diversity-mediation hypothesis as
 originally framed: neither method's utility rises with realized diversity, whether
 pooled broadly (Figure~\ref{fig:trend}) or compared at specific matched points
-(above). What the data does support is narrower, and holds up whether or not
-diversity is even part of the comparison: MMR's relevance-proportional-plus-diversity
-selection retains utility that PL's relevance-proportional-only sampling does not,
-a significant paired difference across all 28 cells regardless of dial setting
-(Figure~\ref{fig:paired}) --- a real difference between the two methods, not
-evidence that diversity itself is the mechanism protecting utility.
+(above). What the data does support is narrower: MMR's
+relevance-proportional-plus-diversity selection retains utility that PL's
+relevance-proportional-only sampling does not --- MMR's own best setting beats
+PL's own best setting in 16 of 28 cells, by nearly double the margin on average
+when it wins (Figure~\ref{fig:paired}), though the paired difference itself
+falls just short of significance --- a real, if not airtight, difference
+between the two methods, not evidence that diversity itself is the mechanism
+protecting utility.
 
 \subsection{RQ2: RandMMR, a hybrid PL + randomized-MMR reranker}
 \label{sec:rq2}
 
 We hypothesized that combining PL's stochastic fairness mechanism with MMR's
-relevance-aware diversification might capture benefits of both, independent of a
-fully confirmed mechanism from RQ1. We call this \textbf{RandMMR}: PL sampling of
-the top-ranked item, then a randomized-MMR pass
-($\lambda \sim \mathrm{Unif}(\ell_{lo},\ell_{hi})$) over the remaining ranks.
-Randomizing only the top rank is deliberate, not a simplification: since MMR
-penalizes similarity to whatever is \emph{already} selected, one randomized draw
-at rank 1 cascades through every later pick even though ranks $2..k$ are
-themselves chosen deterministically given that draw --- trading less raw
-randomness for a comparable fairness gain, since the whole list's exposure
-disparity moves with it. We
-evaluate the RandMMR condition run across the most tasks and cells ($\alpha{=}4$,
-$\lambda\sim\mathrm{Unif}(0.8,1.0)$, $N{=}20$: all 7 LaMP tasks, 26 completed
-conditions --- the full 4 generator/retriever cells for six tasks, plus 2 of 4, both
-Flan-T5-Base, for LaMP-6) against plain PL, choosing per
-cell the PL $\alpha \in \{1,2,4,8\}$ whose own mean EE-D is closest to RandMMR's ---
-biased toward an $\alpha$ with the same or slightly \emph{higher} disparity than
-RandMMR's own, so PL never gets an unearned fairness advantage in the comparison ---
-unless the single closest $\alpha$ is already within 0.02 EE-D, in which case that one
-is used regardless of direction.
+relevance-aware diversification might capture the benefits of both. We call this
+\textbf{RandMMR}: PL sampling for the top-ranked item, then a randomized-MMR pass
+($\lambda \sim \mathrm{Unif}(\ell_{lo},\ell_{hi})$) over the remaining ranks. Only
+the top rank is randomized: because MMR penalizes similarity to whatever is
+already selected, that one random draw cascades through every later pick even
+though ranks $2..k$ are themselves chosen deterministically given it, so the
+whole list's exposure disparity still moves with a single draw.
+
+We evaluate the condition with the widest coverage ($\alpha{=}4$,
+$\lambda\sim\mathrm{Unif}(0.8,1.0)$) against plain PL, both recomputed at a
+uniform $N{=}10$ samples/query for every one of the 28 (task, generator, ranker)
+cells. Each cell is matched to whichever PL $\alpha \in \{1,2,4,8\}$ has EE-D
+closest to RandMMR's own, breaking ties toward equal or \emph{higher} PL
+disparity so the comparison is never handed an artificially fairer PL point to
+beat --- in every one of the 28 cells, that turns out to be $\alpha{=}2$.
 
 \begin{table}[t]
 \centering
@@ -416,49 +432,39 @@ Task & Gen./Rank. & PL & RandMMR & $\Delta$EU \\
 \end{tabular}
 \end{table}
 
-Table~\ref{tab:hybrid} details the two tasks with a published baseline; the matched
-$\alpha$ is 2 for all eight rows (see text above for the matching rule). RandMMR's
-EU$_{\text{norm}}$ exceeds the matched PL's in 4 of these 8 rows, one significantly
-(Flan-T5-Small/BM25, LaMP-4, $+0.050$, $p{<}0.01$). Across the remaining 20 rows
-(LaMP-2, 3, 5, 6, 7), it does so in 8 of 20, one more significantly
-(Flan-T5-Small/BM25, LaMP-2, $+0.108$, $p{<}0.05$) --- 12 of 28 completed cells
-overall (43\%), both significant cells still favoring RandMMR and none favoring PL.
-Both significant wins again share the same (generator, ranker) cell,
-Flan-T5-Small/BM25, on different tasks. RandMMR's own dial reaches further than
-shown here: LaMP-1 at $\alpha\in\{8,20\}$ pushes EE-D as low as 0.11--0.14 for
-T5-Small, below any workable plain-PL point except $\alpha{=}1$.
-
-Read in aggregate, this is close to a wash: the win rate (43\%; mean
-$\Delta$EU$_{\text{norm}}{=}{+}0.003$) sits near chance, though the per-cell
-significance asymmetry --- zero cells favor PL, two favor RandMMR, both the same
-(generator, ranker) pair --- suggests a real, if narrow, edge rather than pure
-noise. The fairness side is clearer: RandMMR reaches EE-D levels well below any
-workable plain-PL setting except $\alpha{=}1$, without a significant utility cost
-anywhere in the grid. We read the utility picture as promising but unproven, not a
+Table~\ref{tab:hybrid} shows the two tasks with a published baseline. RandMMR's
+EU$_{\text{norm}}$ is higher than matched PL's in 4 of these 8 cells, one
+significantly (Flan-T5-Small/BM25, LaMP-4, $+0.050$, $p{<}0.01$). Across the
+remaining 20 cells (LaMP-2, 3, 5, 6, 7) it is higher in 8 of 20, one more
+significantly (Flan-T5-Small/BM25, LaMP-2, $+0.108$, $p{<}0.05$). Overall,
+RandMMR beats matched PL on utility in 12 of 28 cells (43\%), mean gain
+$+0.003$: PL is ahead more often, but both statistically significant differences
+favor RandMMR and none favor PL, both on the same (generator, ranker) pair,
+Flan-T5-Small/BM25. We read this as a small hint of a real effect, not a
 demonstrated win.
 
+As a reminder, every cell here is matched against PL's $\alpha$ such that RandMMR's EE-D comes out lower (fairer) or matched, resulting in 26 of the 28
+cells with lower EE-D (mean $-0.009$), and still coming out without a significant utility cost anywhere in the grid.
+
 \FloatBarrier
-\section{Conclusions}
+\section{Conclusions and Future Work}
 \label{sec:conclusion}
 
-\textbf{RQ1.} We could not verify the diversity-mediation hypothesis as originally
-framed: neither PL nor MMR shows utility improving as diversity increases. What we
-did find is narrower --- MMR retains utility that PL does not at matched diversity
-levels (Section~\ref{sec:rq1}) --- alongside reasons for skepticism about the
-evidence base itself, both already-known limitations of the LaMP ground truth we
-share with the source paper (Section~\ref{sec:threats}) and a non-monotonic pattern
-in the source paper's own reported EE-D/EE-R relationship (Section~\ref{sec:related}).
+We set out to test whether the source paper's finding --- that fairness-aware
+stochastic reranking does not cost RAG generation utility --- is explained by an
+increase in retrieved-item diversity. It isn't: neither PL nor MMR shows utility
+rising with diversity (Section~\ref{sec:rq1}). MMR does retain utility that PL
+does not, but that is a narrower fact about the two methods themselves, not
+evidence for the diversity mechanism we set out to test. Along the way we also
+found reasons to question the evidence base itself, both in our own reproduction
+(Section~\ref{sec:threats}) and in the source paper's own reported EE-D/EE-R
+relationship. RandMMR, our proposed hybrid of PL's fairness draw and MMR's
+diversification, does not clearly beat plain PL on utility either, but is more
+consistently fairer (Section~\ref{sec:rq2}) --- a promising direction, not a
+settled result.
 
-\textbf{RQ2.} RandMMR, our proposed hybrid, is close to a wash on aggregate utility
-against matched plain PL (12 of 28 tested cells, 43\%), though the two cells that do
-reach significance both favor RandMMR and none favor PL; it reliably reaches EE-D
-levels far below any workable plain-PL setting except $\alpha{=}1$
-(Section~\ref{sec:rq2}). We treat this as a promising but unproven direction rather
-than a settled result --- see Future Work for what we think a proper follow-up
-would need.
-
-\section{Future Work}
-\label{sec:future}
+Despite not confirming our initial hypothesis, we see real potential in a few
+directions a proper follow-up should pursue:
 
 \begin{enumerate}[leftmargin=1.1em,itemsep=3pt]
   \item \textbf{Scale and realism.} Nearly every number in this paper comes

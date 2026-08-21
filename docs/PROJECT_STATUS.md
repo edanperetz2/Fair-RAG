@@ -619,3 +619,43 @@ not Holm-significant), plus a small significant PL-vs-MMR residual cost on
 Base; (d) whether any of this grows at XXL scale remains the future-work
 question. The report should cite this correction openly - it is a methods
 lesson (composition bugs from partial-coverage dedup) as much as a result.
+
+## 13. Update (2026-08-21): RandMMR + narrative rewrite, and a stale-number catch in RQ2
+
+**RandMMR and the narrative pivot (commit `2b2dde5`).** The paper's framing moved
+from a single narrow positive finding to: critique the evidence base (both our
+own LaMP ground-truth limitations and a non-monotonic pattern in the source
+paper's own Figure 4a) + an honestly-unverified RQ1 (diversity does not mediate
+fairness's apparent lack of utility cost) + a narrower, better-supported
+MMR-vs-PL finding + RandMMR as a promising-but-unproven direction rather than a
+settled result. `framework/reranking.py` gained a `pl_randmmr` method (PL
+sampling for the top rank, then a randomized-MMR pass over the rest) to support
+this.
+
+**Extended editing pass on the paper.** Formalized the EE-D/EE-R definitions in
+Related Work directly from Diaz et al. (2020)'s exposure-vector derivation
+(`epsilon = sum_pi p(pi|q) MU(pi_d)`, EE-D/EE-R as the two terms of
+`||epsilon - epsilon*||^2`'s expansion) rather than gesturing at them
+informally; added a small side-by-side figure contrasting Diaz et al.'s
+idealized disparity-vs-relevance curve against the source paper's own messier
+Figure 4a; relocated the Figure-4a critique out of Related Work into §3.1
+(Limitations), where it belongs alongside the other reasons to discount the
+evidence base; merged the Conclusions and Future Work sections into one,
+non-repetitive section; and repeatedly trimmed RQ2's prose so it states results
+plainly instead of narrating our own back-and-forth about what does or doesn't
+count as a "finding."
+
+**Caught and fixed: RQ2 prose was quoting a stale, pre-correction sample
+size.** `experiments/rq3_randmmr_vs_pl_n10.py` (see its own docstring) had
+already rebuilt the full RandMMR-vs-PL comparison at a uniform N=10
+samples/query across all 28 (task, generator, ranker) cells, fixing an earlier
+undisclosed precision asymmetry where RandMMR ran at N=20 against PL partners
+mostly at N=10 (sometimes N=20/N=30). Table 2 in the paper was already sourced
+from the corrected file
+(`report/tables/rq3_randmmr_vs_pl_n10_all_cells.csv`) and its numbers were
+right, but the surrounding prose still said "N=20" and "26 of 28 cells" from
+before the rebuild. Fixed to match the table: N=10 throughout, all 28 cells
+covered, and the EE-D comparison corrected from a stale "19 of 26, mean
+-0.015" to the correct "26 of 28, mean -0.009" (recomputed directly from the
+same CSV). A reminder that when a table gets regenerated, the prose describing
+it needs the same pass — the two silently drifted apart here.
