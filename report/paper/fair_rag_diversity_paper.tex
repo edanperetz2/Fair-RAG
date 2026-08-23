@@ -374,13 +374,15 @@ three choices applied on top of the top-$k$ candidates:
   --- pick every later rank deterministically by MMR score
   ($\lambda\cdot\text{rel} - (1-\lambda)\cdot\text{max-sim-to-selected}$), with
   $\lambda$ fixed for the whole list or redrawn fresh each rank --- or
-  \emph{apply PL on top of MMR} --- resample every later rank with a fresh
-  Gumbel-max draw over that same MMR score instead of taking its argmax, with
-  one $\lambda$ shared across the whole sampled list.
+  \emph{apply a PL-weighted diversity discount} --- resample every later rank
+  with a fresh Gumbel-max draw proportional to $\text{rel}^\alpha\cdot(1 -
+  (1-\lambda)\cdot\text{max-sim-to-selected})$, i.e.\ the same $\alpha$-shaped
+  PL score used for rank 1, multiplicatively discounted by similarity to what's
+  already been picked, with one $\lambda$ shared across the whole sampled list.
 \end{enumerate}
 
 The only setting we ran with a full utility comparison uses the second option:
-all $k$ ranks randomized (PL on top of MMR), $\alpha{=}4$,
+all $k$ ranks randomized (PL-weighted diversity discount), $\alpha{=}4$,
 $\lambda\sim\mathrm{Unif}(0.8,1.0)$ drawn once per sampled list. We evaluate it
 against plain PL for every one of the 28 (task, generator, ranker) cells, with
 EE-D computed at $N{=}100$ samples/query and EU at $N{=}10$
