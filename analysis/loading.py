@@ -103,18 +103,23 @@ def select_best_precision(df):
     other three cells' N=10 PL runs for any (task, alpha) that Small/BM25 had
     re-run at N=30.
 
-    Applies to "pl" (keyed by pl_alpha), "pl_randmmr", and "pl_xquad" (both keyed by
-    their own lambda_low/high), since re-running any of these methods at a different
-    pl_samples count - e.g. an initial N=10 probe followed by a higher-precision
-    N=100 run - hits the exact same double-counting risk as "pl" does.
+    Applies to "pl" (keyed by pl_alpha), "pl_randmmr", "pl_randmmr_fixed", and
+    "pl_xquad" (all three keyed by their own lambda_low/high), since re-running
+    any of these methods at a different pl_samples count - e.g. an initial N=10
+    probe followed by a higher-precision N=100 run - hits the exact same
+    double-counting risk as "pl" does.
     """
     import pandas as pd
 
-    out_parts = [df[~df["rerank_method"].isin(["pl", "pl_randmmr", "pl_xquad"])]]
+    out_parts = [df[~df["rerank_method"].isin(["pl", "pl_randmmr", "pl_randmmr_fixed", "pl_randmmr_stochastic", "pl_xquad"])]]
     for method, key_cols in (
         ("pl", ("generator_name", "ranker", "lamp_num", "pl_alpha")),
         ("pl_randmmr", ("generator_name", "ranker", "lamp_num", "pl_alpha",
                          "pl_randmmr_lambda_low", "pl_randmmr_lambda_high")),
+        ("pl_randmmr_fixed", ("generator_name", "ranker", "lamp_num", "pl_alpha",
+                               "pl_randmmr_lambda_low", "pl_randmmr_lambda_high")),
+        ("pl_randmmr_stochastic", ("generator_name", "ranker", "lamp_num", "pl_alpha",
+                                    "pl_randmmr_lambda_low", "pl_randmmr_lambda_high", "pl_randmmr_tau")),
         ("pl_xquad", ("generator_name", "ranker", "lamp_num", "pl_alpha",
                        "pl_xquad_lambda_low", "pl_xquad_lambda_high")),
     ):

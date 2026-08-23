@@ -38,7 +38,7 @@ class RetrievalConfig:
 
 @dataclass
 class RerankConfig:
-    method: str = "pl"                  # "pl" (Plackett-Luce) | "mmr" | "pl_mmr" | "pl_randmmr" | "pl_xquad" | "deterministic"
+    method: str = "pl"                  # "pl" (Plackett-Luce) | "mmr" | "pl_mmr" | "pl_randmmr" | "pl_randmmr_fixed" | "pl_randmmr_stochastic" | "pl_xquad" | "deterministic"
     # Plackett-Luce params
     pl_alpha: int = 1                   # temperature α; higher = more deterministic
     pl_samples: int = 10                # N stochastic samples per query
@@ -47,8 +47,18 @@ class RerankConfig:
     # pl_randmmr params: rank 1 via pure PL(pl_alpha), ranks 2..k via the same
     # diversity-penalized sampling as pl_mmr but with lambda drawn fresh per sample
     # from Uniform(pl_randmmr_lambda_low, pl_randmmr_lambda_high)
+    # pl_randmmr_fixed and pl_randmmr_stochastic reuse these same two fields:
+    # rank 1 via pure PL(pl_alpha), ranks 2..k with lambda drawn fresh PER RANK
+    # (not once per list) from Uniform(pl_randmmr_lambda_low, pl_randmmr_lambda_high)
+    # - pl_randmmr_fixed picks each rank by plain deterministic MMR argmax;
+    # - pl_randmmr_stochastic picks each rank by a Gumbel-max sample over
+    #   pl_randmmr_tau * mmr_score instead (see pl_randmmr_tau below)
     pl_randmmr_lambda_low: float = 0.7
     pl_randmmr_lambda_high: float = 0.9
+    # pl_randmmr_stochastic only: temperature for the ranks-2..k Gumbel-max
+    # sample over the MMR score (tau -> inf approaches pl_randmmr_fixed's
+    # deterministic argmax; tau -> 0 approaches a uniform random pick)
+    pl_randmmr_tau: float = 20.0
     # pl_xquad params: rank 1 via pure PL(pl_alpha), ranks 2..k via xQuAD-style
     # aspect-novelty sampling (candidates-as-aspects adaptation), lambda drawn fresh
     # per sample from Uniform(pl_xquad_lambda_low, pl_xquad_lambda_high)
@@ -122,6 +132,15 @@ def setting_id(cfg: RunConfig) -> str:
         lo_str = str(rr.pl_randmmr_lambda_low).replace(".", "")
         hi_str = str(rr.pl_randmmr_lambda_high).replace(".", "")
         rerank_str = f"pl_randmmr_a{rr.pl_alpha}_l{lo_str}to{hi_str}_s{rr.pl_samples}"
+    elif rr.method == "pl_randmmr_fixed":
+        lo_str = str(rr.pl_randmmr_lambda_low).replace(".", "")
+        hi_str = str(rr.pl_randmmr_lambda_high).replace(".", "")
+        rerank_str = f"pl_randmmr_fixed_a{rr.pl_alpha}_l{lo_str}to{hi_str}_s{rr.pl_samples}"
+    elif rr.method == "pl_randmmr_stochastic":
+        lo_str = str(rr.pl_randmmr_lambda_low).replace(".", "")
+        hi_str = str(rr.pl_randmmr_lambda_high).replace(".", "")
+        tau_str = str(rr.pl_randmmr_tau).replace(".", "")
+        rerank_str = f"pl_randmmr_stoch_a{rr.pl_alpha}_l{lo_str}to{hi_str}_tau{tau_str}_s{rr.pl_samples}"
     elif rr.method == "pl_xquad":
         lo_str = str(rr.pl_xquad_lambda_low).replace(".", "")
         hi_str = str(rr.pl_xquad_lambda_high).replace(".", "")
@@ -155,6 +174,16 @@ def list_id_for_mmr(qid: str) -> str:
 def list_id_for_pl_randmmr(qid: str, sample_idx: int) -> str:
     """Retrieval list ID for the i-th PL-then-random-lambda-MMR hybrid sample."""
     return f"{qid}__pl_randmmr_s{sample_idx:03d}"
+
+
+def list_id_for_pl_randmmr_fixed(qid: str, sample_idx: int) -> str:
+    """Retrieval list ID for the i-th corrected (per-rank-lambda, deterministic-MMR) RandMMR sample."""
+    return f"{qid}__pl_randmmr_fixed_s{sample_idx:03d}"
+
+
+def list_id_for_pl_randmmr_stochastic(qid: str, sample_idx: int) -> str:
+    """Retrieval list ID for the i-th soft/stochastic-tail RandMMR sample."""
+    return f"{qid}__pl_randmmr_stochastic_s{sample_idx:03d}"
 
 
 def list_id_for_pl_xquad(qid: str, sample_idx: int) -> str:

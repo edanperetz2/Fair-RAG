@@ -1,0 +1,93 @@
+\documentclass[10pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{placeins}
+\usepackage{hyperref}
+
+\title{Auxiliary Check: EE-D at $N{=}100$ vs.\ the Paper's $N{=}10$ Numbers\\for the RandMMR-vs-PL Comparison}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\noindent\textbf{This is a working diagnostic document, not part of the paper.} It
+checks how much Table 2 / Appendix B's per-cell EE-D numbers would move if EE-D were
+estimated from $N{=}100$ reranking samples instead of $N{=}10$, for the same
+comparison the paper already reports: the (buggy) hybrid reranker
+\texttt{pl\_randmmr} ($\alpha{=}4$, $\lambda\sim U(0.8,1.0)$) against its matched
+plain-PL setting, per (task, generator, ranker) cell. EE-D only depends on which
+documents land in which ranked positions across the sampled lists, not on any
+generated text, so this recomputation needed zero LLM calls --- retrieval and
+reranking only. Expected Utility (EU$_{\text{norm}}$) and its significance ($p$-value)
+are left exactly as already reported from the real $N{=}10$ generation runs; only
+EE-D is recomputed at higher precision.
+
+\section{Why this check}
+
+Every EE-D number anywhere in this project is a Monte Carlo estimate over a finite
+set of $N$ sampled rankings. A separate check (not shown here) found that low-entropy
+policies (e.g.\ high-$\alpha$ PL) barely move between $N{=}10$ and $N{=}100$, while
+high-entropy policies (e.g.\ low-$\alpha$ PL, or the stochastic-tail hybrid reranker)
+can shift substantially --- $N{=}10$ systematically \emph{overstates} disparity for
+these because a small sample under-explores how spread out the policy really is. Since
+the paper's Table 2 comparison uses $N{=}10$ throughout, it is worth checking directly
+whether the reported RandMMR-vs-PL gap survives a higher-precision re-estimate, rather
+than assuming it does.
+
+\section{Result}
+
+\noindent\textbf{Which PL setting.} The paper matches each cell's hybrid reranker
+against whichever PL$(\alpha)$ has the closest own EE-D (biased toward equal-or-higher
+PL disparity when no close match exists; see the main paper's methodology notes for
+the exact rule). That per-cell match happens to land on $\alpha{=}2$ for \emph{every}
+one of the 28 cells in this particular comparison --- not assumed, checked directly
+against the \texttt{chosen\_pl\_alpha} column of
+\texttt{rq3\_randmmr\_vs\_pl\_n10\_all\_cells.csv}. So every ``PL EE-D'' value below is
+PL$(\alpha{=}2)$, not a mix of different $\alpha$'s across rows.
+
+\textbf{It survives, and if anything strengthens slightly.} RandMMR has the lower
+(fairer) EE-D in 26 of 28 cells at both $N{=}10$ and $N{=}100$. The mean gap
+(RandMMR $-$ PL) goes from $-0.0089$ at $N{=}10$ to $-0.0113$ at $N{=}100$ --- wider in
+RandMMR's favor, not narrower. Four individual cells flip direction (marked
+$^\dagger$ below), but they cancel out: two flip from PL-favoring to RandMMR-favoring
+(both essentially exact ties at $N{=}10$, margins under $0.002$), and two flip the
+other way (LaMP-7, both BM25 cells, margins under $0.003$ either direction) --- none
+of the four flips is a real reversal, all are noise-level margins at $N{=}10$ resolving
+in one direction or the other once precision improves. Utility is unaffected throughout:
+the same two cells remain significant (LaMP-2 Small/BM25, $p{=}0.017$; LaMP-4
+Small/BM25, $p{=}0.0019$), both already favoring RandMMR on utility.
+
+\FloatBarrier
+\begin{longtable}{c l l cc cc rr}
+\toprule
+LaMP & Gen. & Ranker & \multicolumn{2}{c}{PL($\alpha{=}2$) EE-D} & \multicolumn{2}{c}{RandMMR EE-D} & \multicolumn{2}{c}{$\Delta$EE-D (RandMMR$-$PL)} \\
+ & & & $N{=}10$ & $N{=}100$ & $N{=}10$ & $N{=}100$ & $N{=}10$ & $N{=}100$ \\
+\midrule
+\endfirsthead
+\toprule
+LaMP & Gen. & Ranker & \multicolumn{2}{c}{PL($\alpha{=}2$) EE-D} & \multicolumn{2}{c}{RandMMR EE-D} & \multicolumn{2}{c}{$\Delta$EE-D (RandMMR$-$PL)} \\
+ & & & $N{=}10$ & $N{=}100$ & $N{=}10$ & $N{=}100$ & $N{=}10$ & $N{=}100$ \\
+\midrule
+\endhead
+\bottomrule
+\endlastfoot
+\input{eed_n100_table_rows.tex}
+\end{longtable}
+\noindent $^\dagger$ cell where the RandMMR-vs-PL EE-D comparison flips direction between $N{=}10$ and $N{=}100$ (all four are noise-level margins at $N{=}10$, under $0.003$).
+
+\section{Caveat}
+
+Decoupling EE-D's sample size from EU's is methodologically valid --- EE-D/EE-R/EE-L
+are computed purely from reranking output via \texttt{compute\_ee}, with no
+dependence on which lists were actually sent to the LLM, so EE-D at $N{=}100$ and EU
+at $N{=}10$ both remain correct Monte Carlo estimates of the same policy's true EE-D
+and true EU respectively. The one thing given up is that EE-D and EU no longer
+describe the identical realized set of served lists (only the identical
+\emph{policy}) --- irrelevant for the policy-level claims this project makes, but
+worth naming explicitly.
+
+\end{document}

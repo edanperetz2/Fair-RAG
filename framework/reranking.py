@@ -33,7 +33,7 @@ sys.path.insert(0, ROOT)
 
 from perturbation import plackettluce as pl_mod
 from framework.retrieval import normalize_scores_for_pl
-from framework.config import list_id_for_pl, list_id_for_mmr, list_id_for_deterministic, list_id_for_pl_mmr, list_id_for_pl_randmmr, list_id_for_pl_xquad
+from framework.config import list_id_for_pl, list_id_for_mmr, list_id_for_deterministic, list_id_for_pl_mmr, list_id_for_pl_randmmr, list_id_for_pl_randmmr_fixed, list_id_for_pl_randmmr_stochastic, list_id_for_pl_xquad
 from framework.metrics import profile_to_text, jaccard_similarity
 
 
@@ -404,6 +404,226 @@ def generate_pl_randmmr_lists(
             det_indices=selected_indices,
             method="pl_randmmr",
             param=f"alpha={pl_alpha},lambda={sample_lambda:.4f}",
+            sample_idx=sample_idx,
+        ))
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# PL-then-per-rank-random-MMR hybrid (corrected RandMMR): rank 1 via pure
+# PL(alpha) exactly as above; ranks 2..k via DETERMINISTIC MMR (plain argmax,
+# no Gumbel noise), each rank drawing its own fresh lambda ~
+# Uniform(lambda_low, lambda_high) before that rank's argmax. This differs from
+# generate_pl_randmmr_lists in two ways: (1) one lambda draw per rank instead
+# of one shared lambda per whole list, and (2) ranks 2..k are chosen by plain
+# greedy argmax, not by a further Gumbel-max sample - so the randomness in
+# ranks 2..k comes entirely from the per-rank lambda draw, not from re-sampling
+# the pick itself given that lambda.
+# ---------------------------------------------------------------------------
+
+def generate_pl_randmmr_fixed_lists(
+    retrieval_results_for_qid: List,   # [(pid, score), ...]
+    profiles_for_qid: List[Dict],      # profile dicts, same order as retrieval_results
+    ranker: str,
+    pl_alpha: int,
+    lambda_low: float,
+    lambda_high: float,
+    pl_samples: int,
+    top_k: int,
+    seed: int,
+    qid: str,
+) -> List[RetrievalList]:
+    """
+    Rank 1 is drawn via pure Plackett-Luce (Gumbel-max on alpha-shaped
+    log-scores), exactly as in ``generate_pl_randmmr_lists``. Ranks 2..k are
+    then chosen by deterministic MMR (plain argmax over
+    lambda_rank * rel(d) - (1 - lambda_rank) * max_sim(d, selected), no Gumbel
+    noise), with lambda_rank drawn fresh ~ Uniform(lambda_low, lambda_high)
+    independently for every rank of every sample.
+    """
+    rng = np.random.default_rng(seed)
+    np.random.seed(seed)  # keep rank-1 Gumbel draws reproducible/consistent with siblings
+
+    pids = [p[0] for p in retrieval_results_for_qid]
+    raw_scores = np.array([float(p[1]) for p in retrieval_results_for_qid], dtype=np.float64)
+
+    normed = normalize_scores_for_pl(raw_scores, ranker)
+    base_scores = normed ** pl_alpha
+    log_base = np.log(np.maximum(base_scores, 1e-12))
+
+    # Plain [0, 1] relevance normalization for the deterministic MMR ranks
+    # (2..k), matching generate_mmr_list's own convention.
+    mn, mx = raw_scores.min(), raw_scores.max()
+    if mx > mn:
+        rel_scores = (raw_scores - mn) / (mx - mn)
+    else:
+        rel_scores = np.ones_like(raw_scores)
+
+    pid_to_tokens: Dict[str, frozenset] = {}
+    for pid, prof in zip(pids, profiles_for_qid):
+        pid_to_tokens[pid] = _profile_to_tokens(prof)
+
+    n_docs = len(pids)
+    cutoff = min(top_k, n_docs)
+    result: List[RetrievalList] = []
+
+    for sample_idx in range(pl_samples):
+        selected_indices: List[int] = []
+        remaining = list(range(n_docs))
+
+        # Rank 1: pure PL draw, alpha-shaped, Gumbel-max.
+        gumbel_noise = np.random.gumbel(size=len(remaining))
+        perturbed = log_base[remaining] + gumbel_noise
+        chosen_k = int(np.argmax(perturbed))
+        chosen_i = remaining[chosen_k]
+        selected_indices.append(chosen_i)
+        remaining.pop(chosen_k)
+
+        rank_lambdas: List[float] = []
+        # Ranks 2..k: deterministic MMR, a fresh lambda drawn per rank.
+        for _ in range(cutoff - 1):
+            if not remaining:
+                break
+            rank_lambda = float(rng.uniform(lambda_low, lambda_high))
+            rank_lambdas.append(rank_lambda)
+
+            best_idx: Optional[int] = None
+            best_score = -np.inf
+            for i in remaining:
+                max_sim = max(
+                    jaccard_similarity(pid_to_tokens[pids[i]], pid_to_tokens[pids[j]])
+                    for j in selected_indices
+                )
+                mmr_score = rank_lambda * rel_scores[i] - (1.0 - rank_lambda) * max_sim
+                if mmr_score > best_score:
+                    best_score = mmr_score
+                    best_idx = i
+
+            selected_indices.append(best_idx)
+            remaining.remove(best_idx)
+
+        doc_ids = [pids[i] for i in selected_indices]
+        result.append(RetrievalList(
+            qid=qid,
+            list_id=list_id_for_pl_randmmr_fixed(qid, sample_idx),
+            doc_ids=doc_ids,
+            det_indices=selected_indices,
+            method="pl_randmmr_fixed",
+            param=f"alpha={pl_alpha},lambdas={'|'.join(f'{l:.4f}' for l in rank_lambdas)}",
+            sample_idx=sample_idx,
+        ))
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# PL-then-per-rank-random-MMR hybrid, soft/stochastic tail: rank 1 via pure
+# PL(alpha) exactly as in generate_pl_randmmr_fixed_lists; ranks 2..k draw a
+# fresh lambda per rank as in that function, but instead of a plain argmax over
+# the resulting MMR score, take a Gumbel-max sample over `tau * mmr_score`.
+# tau is a temperature: as tau -> infinity this converges to
+# generate_pl_randmmr_fixed_lists's fully deterministic tail (their EE-D was
+# found to sit far above matched PL's, since 4 of top_k=5 ranks were then
+# effectively repeatable across samples); as tau -> 0 the tail approaches a
+# uniform random pick among remaining candidates at every rank. tau is the
+# knob used to bring the tail's exposure concentration back down toward a
+# matched PL setting's own EE-D without reverting to a full second PL draw
+# (which would erase the deterministic-MMR-given-lambda structure entirely).
+# ---------------------------------------------------------------------------
+
+def generate_pl_randmmr_stochastic_lists(
+    retrieval_results_for_qid: List,   # [(pid, score), ...]
+    profiles_for_qid: List[Dict],      # profile dicts, same order as retrieval_results
+    ranker: str,
+    pl_alpha: int,
+    lambda_low: float,
+    lambda_high: float,
+    tau: float,
+    pl_samples: int,
+    top_k: int,
+    seed: int,
+    qid: str,
+) -> List[RetrievalList]:
+    """
+    Rank 1 is drawn via pure Plackett-Luce (Gumbel-max on alpha-shaped
+    log-scores), exactly as in ``generate_pl_randmmr_fixed_lists``. Ranks 2..k
+    draw a fresh lambda ~ Uniform(lambda_low, lambda_high) per rank, then pick
+    via a Gumbel-max sample over ``tau * mmr_score`` (rather than a plain
+    argmax) - so the tail stays MMR-shaped (still driven by the same relevance
+    / diversity trade-off, still re-drawing lambda every rank) but the pick
+    itself is stochastic, with tau controlling how close to deterministic
+    argmax (large tau) vs. uniform-random (tau -> 0) that pick is.
+    """
+    rng = np.random.default_rng(seed)
+    np.random.seed(seed)  # keep rank-1 Gumbel draws reproducible/consistent with siblings
+
+    pids = [p[0] for p in retrieval_results_for_qid]
+    raw_scores = np.array([float(p[1]) for p in retrieval_results_for_qid], dtype=np.float64)
+
+    normed = normalize_scores_for_pl(raw_scores, ranker)
+    base_scores = normed ** pl_alpha
+    log_base = np.log(np.maximum(base_scores, 1e-12))
+
+    mn, mx = raw_scores.min(), raw_scores.max()
+    if mx > mn:
+        rel_scores = (raw_scores - mn) / (mx - mn)
+    else:
+        rel_scores = np.ones_like(raw_scores)
+
+    pid_to_tokens: Dict[str, frozenset] = {}
+    for pid, prof in zip(pids, profiles_for_qid):
+        pid_to_tokens[pid] = _profile_to_tokens(prof)
+
+    n_docs = len(pids)
+    cutoff = min(top_k, n_docs)
+    result: List[RetrievalList] = []
+
+    for sample_idx in range(pl_samples):
+        selected_indices: List[int] = []
+        remaining = list(range(n_docs))
+
+        # Rank 1: pure PL draw, alpha-shaped, Gumbel-max.
+        gumbel_noise = np.random.gumbel(size=len(remaining))
+        perturbed = log_base[remaining] + gumbel_noise
+        chosen_k = int(np.argmax(perturbed))
+        chosen_i = remaining[chosen_k]
+        selected_indices.append(chosen_i)
+        remaining.pop(chosen_k)
+
+        rank_lambdas: List[float] = []
+        # Ranks 2..k: stochastic MMR - Gumbel-max over tau * mmr_score, a
+        # fresh lambda drawn per rank.
+        for _ in range(cutoff - 1):
+            if not remaining:
+                break
+            rank_lambda = float(rng.uniform(lambda_low, lambda_high))
+            rank_lambdas.append(rank_lambda)
+
+            mmr_scores = np.empty(len(remaining))
+            for k_r, i in enumerate(remaining):
+                max_sim = max(
+                    jaccard_similarity(pid_to_tokens[pids[i]], pid_to_tokens[pids[j]])
+                    for j in selected_indices
+                )
+                mmr_scores[k_r] = rank_lambda * rel_scores[i] - (1.0 - rank_lambda) * max_sim
+
+            gumbel_noise = np.random.gumbel(size=len(remaining))
+            perturbed = tau * mmr_scores + gumbel_noise
+            chosen_k = int(np.argmax(perturbed))
+            chosen_i = remaining[chosen_k]
+
+            selected_indices.append(chosen_i)
+            remaining.pop(chosen_k)
+
+        doc_ids = [pids[i] for i in selected_indices]
+        result.append(RetrievalList(
+            qid=qid,
+            list_id=list_id_for_pl_randmmr_stochastic(qid, sample_idx),
+            doc_ids=doc_ids,
+            det_indices=selected_indices,
+            method="pl_randmmr_stochastic",
+            param=f"alpha={pl_alpha},tau={tau},lambdas={'|'.join(f'{l:.4f}' for l in rank_lambdas)}",
             sample_idx=sample_idx,
         ))
 

@@ -42,16 +42,10 @@ deterministic ranking. We set out to test whether this holds because fairness
 interventions implicitly increase retrieved-item diversity, a property often
 beneficial for RAG generation in its own right, reproducing the setup on the LaMP
 benchmark and contrasting a deterministic diversity-relevance re-ranker (MMR)
-against stochastic, relevance-proportional sampling (Plackett-Luce, PL). We could
-not verify this diversity-mediation hypothesis: neither method shows utility rising
-with diversity, though MMR consistently retains more utility than PL does at
-comparable diversity levels --- a narrower, better-supported finding. Along the way,
-we surface reasons for skepticism about the evidence base itself, both in the LaMP
-ground truth we share with the source paper and in the source paper's own reported
-results. We also explore RandMMR, a hybrid reranker combining PL's stochastic draw
-with MMR's relevance-aware diversification; early results are mixed but suggestive
-rather than a demonstrated improvement. We lay out concrete directions for future
-work.
+against stochastic, relevance-proportional sampling (Plackett-Luce, PL). While we could
+not verify this diversity-mediation hypothesis, we surface reasons for skepticism about the evidence base itself described in section 3.1 
+and we explore RandMMR, a hybrid reranker combining PL's stochastic draw
+with MMR's relevance-aware diversification and find an interesting and possibly useful property when combining the two.
 \end{abstract}
 
 \vspace{0.3em}
@@ -162,7 +156,7 @@ check whether any finding is task-specific or general.
 We verified our local corpus against the original paper's own published statistics
 (Appendix D, Tables 4--5): per-task query count, average candidate-document count,
 average useful-document count, and average useful-document percentage all match
-to the paper's reported precision across all 7 tasks $\times$ 2 generators (28
+to the paper's reported precision across all 7 tasks $\times$ 2 generators (14
 cells), confirming our filtered dataset is the identical one used upstream, not a
 re-derived approximation.
 
@@ -191,6 +185,7 @@ Flan-T5-Base  & 102.9 & 22.5 & 45.6 & 29.9 & 185.3 & 41.2 & 187.0 & 31.6 & 105.6
 \bottomrule
 \end{tabular}
 \end{table*}
+\FloatBarrier
 
 These reasons for choosing LaMP come with limitations worth stating up front, shared
 with the source paper, that bound how far our results (Section~\ref{sec:results})
@@ -220,11 +215,13 @@ production RAG generators ($\geq$3B). The source paper's largest, Flan-UL2
 generations behind current deployments. Whether either paper's findings persist at
 production scale is untested by both (see Future Work).
 
-\textbf{The EE-D/EE-R trade-off barely holds for this dataset.} The same small,
-generator-specific ground truth (previous point) leaves it noisy even in aggregate,
-individual queries and whole conditions alike. Figure~\ref{fig:diaz-vs-fairrag} puts
-this in context: the source paper's own aggregate curve (right) doesn't behave like
-a classic instance of the fairness/relevance trade-off (left) at all.
+\textbf{ROUGE-L is an imperfect stand-in for generation quality.} For the four
+generation tasks (LaMP-4--7), both our utility labels and EU score correctness via
+ROUGE-L, an $n$-gram-overlap metric that can score a valid paraphrase lower than a
+wrong but lexically similar answer --- errors propagate into ground truth itself,
+not just our reported EU. A more faithful LLM-as-judge metric was out of reach at
+this project's scale; ROUGE-L is the standard LaMP metric \cite{salemi2023lamp},
+not a choice specific to either paper.
 
 \begin{figure}[t]
 \centering
@@ -244,23 +241,11 @@ al.'s idealized disparity-vs-relevance curve for human users (Figure 3 of
 \label{fig:diaz-vs-fairrag}
 \end{figure}
 
-\textbf{ROUGE-L is an imperfect stand-in for generation quality.} For the four
-generation tasks (LaMP-4--7), both our utility labels and EU score correctness via
-ROUGE-L, an $n$-gram-overlap metric that can score a valid paraphrase lower than a
-wrong but lexically similar answer --- errors propagate into ground truth itself,
-not just our reported EU. A more faithful LLM-as-judge metric was out of reach at
-this project's scale; ROUGE-L is the standard LaMP metric \cite{salemi2023lamp},
-not a choice specific to either paper.
-
-\textbf{The source paper's own EE-D/EE-R relationship is non-monotonic.} Its Figure
-4a (right panel of Figure~\ref{fig:diaz-vs-fairrag}) plots normalized EE-R against
-EE-D, and ranking quality does not rise smoothly
-with disparity the way the fairness/relevance tradeoff (Section~\ref{sec:related})
-would predict --- one retriever (BM25) dips sharply in the EE-D$\in[0.6,0.8)$ range
-after an earlier peak, and none of the three retrievers plotted clearly maximizes
-EE-R at EE-D$=1.0$, the fully deterministic anchor point the paper's utility
-comparisons are measured against. A relationship this non-monotonic complicates
-using that anchor point as the reference for ``fairness costs nothing'' claims.
+\textbf{The source paper's own EE-D/EE-R relationship is non-monotonic.} The right
+panel of Figure~\ref{fig:diaz-vs-fairrag} is the source paper's own Figure 4a:
+unlike the textbook trade-off on the left, quality does not rise smoothly with
+disparity. A dataset that doesn't behave like the typical case this framework
+assumes raises a further concern about how representative LaMP is.
 
 \section{Methodology Notes}
 \label{sec:method}
@@ -269,15 +254,18 @@ We treat the original paper's open-sourced code as a direct reference throughout
 matching its library versions, reusing its utility-labeling technique
 (Section~\ref{sec:threats}) and implementation details (prompt templates, scoring
 functions) wherever our framework's structure allowed it directly, and otherwise
-re-implementing to match its stated method as closely as we could. Reproduction
-fidelity is imperfect on the two tasks for which the source paper publishes
-deterministic-baseline EU directly, driven mainly by Flan-T5-Small's own
-instability rather than by task --- a content-invariant failure mode on LaMP-1
-(it predicts the same label regardless of retrieved context, which also
-destabilizes its normalization ceiling) and, on LaMP-4, a gap between our
-normalization ceiling and the paper's fuller one. We treat both as limits of
-exact reproduction, not codebase errors; the full per-cell comparison against
-the paper's own numbers is in Table~\ref{tab:baseline}, Appendix~\ref{app:baseline}.
+re-implementing to match its stated method as closely as we could. Three factors
+limit how closely our reproduction can match the source paper's own numbers.
+First, Expected Utility needs one LLM call per sampled ranking; running that at
+the paper's $N{=}100$ samples/query across 28 (task, generator, ranker) cells and
+4 PL settings was not feasible, so we use $N{=}10$ for EU throughout. EE-D needs
+no generation, so we compute it at $N{=}100$ everywhere in this paper. Second, our
+EU normalization ceiling (below) draws only 3 random oracle permutations against
+the paper's much larger sample, which can make our normalized EU higher than a
+fuller ceiling would allow --- see the per-cell comparison against the paper's own
+numbers in Table~\ref{tab:baseline}, Appendix~\ref{app:baseline}. Third, as noted
+in Section~\ref{sec:data}, we cover two generators and two retrievers, not the
+paper's full grid.
 
 Every EU$_{\text{norm}}$ value in this paper uses the source paper's own per-query
 formula, $\text{EU}_{\text{norm}}(q){=}\text{EU}(q)/\max(\text{gold\_ceiling}(q),
@@ -288,11 +276,7 @@ query, at that generator and ranker --- PL at any $\alpha$, MMR at any $\lambda$
 RandMMR, or deterministic, not only PL: Appendix C of \cite{eunkim2025fairrag}
 defines the bound for a fixed $\text{RAG}(R,G,k)$, and every method we run at a
 given $(R,G,k)$ is a real empirical sample of what that same system can produce),
-falling back to $1.0$ when both ceilings are zero. While the source paper draws
-from $m!(n{-}m)!$ possible permutations of the oracle ranking (Appendix C.3 of
-\cite{eunkim2025fairrag}), we could only afford to draw 3 random ones (via PL
-sampling at $\alpha{=}8$ over the oracle ranking) for EU normalization --- a
-lower, not upper, bound on the paper's own fuller ceiling.
+falling back to $1.0$ when both ceilings are zero.
 
 \section{Results}
 \label{sec:results}
@@ -327,9 +311,8 @@ The key test is whether this diversity increase predicts \emph{higher} utility.
 \centering
 \includegraphics[width=\linewidth]{fig_diversity_trend_pooled.png}
 \caption{$\Delta$EU$_{\text{norm}}$ vs.\ deterministic against realized diversity
-(mean ILD$_{\text{norm}}$ of that setting's own outputs), one point per (task,
-generator, ranker, $\alpha$/$\lambda$) combination, pooled across all 28 cells.
-Lines are least-squares fits per method.}
+(mean ILD$_{\text{norm}}$), pooled across all 28 cells; lines are least-squares
+fits per method.}
 \label{fig:trend}
 \end{figure}
 
@@ -369,43 +352,53 @@ originally framed: neither method's utility rises with realized diversity, wheth
 pooled broadly (Figure~\ref{fig:trend}) or compared at specific matched points
 (above). What the data does support is narrower: MMR's
 relevance-proportional-plus-diversity selection retains utility that PL's
-relevance-proportional-only sampling does not --- MMR's own best setting beats
-PL's own best setting in 16 of 28 cells, by nearly double the margin on average
-when it wins (Figure~\ref{fig:paired}), though the paired difference itself
-falls just short of significance --- a real, if not airtight, difference
-between the two methods, not evidence that diversity itself is the mechanism
-protecting utility.
+relevance-proportional-only sampling does not (Figure~\ref{fig:paired}) --- a
+real, if not airtight, difference between the two methods, not evidence that
+diversity itself is the mechanism protecting utility.
 
 \subsection{RQ2: RandMMR, a hybrid PL + randomized-MMR reranker}
 \label{sec:rq2}
 
 We hypothesized that combining PL's stochastic fairness mechanism with MMR's
 relevance-aware diversification might capture the benefits of both. We call this
-\textbf{RandMMR}: PL sampling for the top-ranked item, then a randomized-MMR pass
-($\lambda \sim \mathrm{Unif}(\ell_{lo},\ell_{hi})$) over the remaining ranks. Only
-the top rank is randomized: because MMR penalizes similarity to whatever is
-already selected, that one random draw cascades through every later pick even
-though ranks $2..k$ are themselves chosen deterministically given it, so the
-whole list's exposure disparity still moves with a single draw.
+\textbf{RandMMR}. It is a small design space, not one fixed method, built from
+three choices applied on top of the top-$k$ candidates:
 
-We evaluate the condition with the widest coverage ($\alpha{=}4$,
-$\lambda\sim\mathrm{Unif}(0.8,1.0)$) against plain PL, both recomputed at a
-uniform $N{=}10$ samples/query for every one of the 28 (task, generator, ranker)
-cells. Each cell is matched to whichever PL $\alpha \in \{1,2,4,8\}$ has EE-D
-closest to RandMMR's own, breaking ties toward equal or \emph{higher} PL
-disparity so the comparison is never handed an artificially fairer PL point to
-beat --- in every one of the 28 cells, that turns out to be $\alpha{=}2$.
+\begin{enumerate}[leftmargin=1.4em,itemsep=2pt]
+  \item \textbf{Pick parameters}: the PL temperature $\alpha$, how many of the
+  top-$k$ ranks to randomize (just rank 1, or all $k$ of them), and the
+  diversity weight $\lambda$ (one fixed value, or a range to redraw from).
+  \item \textbf{Rank 1} is drawn via PL($\alpha$) in every variant: one
+  Gumbel-max sample proportional to relevance$^\alpha$ over all candidates.
+  \item \textbf{Ranks $2..k$} then go one of two ways: either \emph{apply MMR}
+  --- pick every later rank deterministically by MMR score
+  ($\lambda\cdot\text{rel} - (1-\lambda)\cdot\text{max-sim-to-selected}$), with
+  $\lambda$ fixed for the whole list or redrawn fresh each rank --- or
+  \emph{apply PL on top of MMR} --- resample every later rank with a fresh
+  Gumbel-max draw over that same MMR score instead of taking its argmax, with
+  one $\lambda$ shared across the whole sampled list.
+\end{enumerate}
+
+The only setting we ran with a full utility comparison uses the second option:
+all $k$ ranks randomized (PL on top of MMR), $\alpha{=}4$,
+$\lambda\sim\mathrm{Unif}(0.8,1.0)$ drawn once per sampled list. We evaluate it
+against plain PL for every one of the 28 (task, generator, ranker) cells, with
+EE-D computed at $N{=}100$ samples/query and EU at $N{=}10$
+(Section~\ref{sec:method}). Each cell is matched to whichever PL
+$\alpha \in \{1,2,4,8\}$ has EE-D closest to RandMMR's own, breaking ties toward
+equal or \emph{higher} PL disparity so the comparison is never handed an
+artificially fairer PL point to beat --- in every one of the 28 cells, that turns
+out to be $\alpha{=}2$.
 
 \begin{table}[t]
 \centering
 \scriptsize
 \setlength{\tabcolsep}{3pt}
-\caption{RandMMR ($\alpha{=}4$, $\lambda\sim U(0.8,1.0)$) vs.\ matched plain PL
-($\alpha{=}2$ throughout; see text), LaMP-1 and LaMP-4 (macro means). EE-D and EU
-are both normalized per query to $[0,1]$ (EE-D: the paper's own bound; EU: our
-per-query empirical-max EU$_{\text{norm}}$). RandMMR's EE-D is lower (fairer) than
-the matched PL's in every row shown; the other five LaMP tasks show a similar
-pattern, given in full in Appendix~\ref{app:randmmr-full}
+\caption{RandMMR vs.\ matched plain PL (see text), LaMP-1 and LaMP-4 (macro
+means). EE-D and EU are normalized per query to $[0,1]$ (EE-D: the paper's own
+bound; EU: our per-query empirical-max EU$_{\text{norm}}$). RandMMR's EE-D is
+lower (fairer) than the matched PL's in every row shown; the other five LaMP
+tasks show a similar pattern, given in full in Appendix~\ref{app:randmmr-full}
 (Table~\ref{tab:hybrid-full}).}
 \label{tab:hybrid}
 \begin{tabular}{@{}ll rr r@{}}
@@ -414,15 +407,15 @@ pattern, given in full in Appendix~\ref{app:randmmr-full}
 \cmidrule(lr){3-4}
 Task & Gen./Rank. & PL & RandMMR & $\Delta$EU \\
 \midrule
-\multirow{4}{*}{LaMP-1} & Base/BM25    & 0.19/0.51 & 0.19/0.49 & $-$0.019 \\
- & Base/Contr.  & 0.18/0.56 & 0.17/0.51 & $-$0.048 \\
- & Small/BM25   & 0.18/0.40 & 0.17/0.39 & $-$0.008 \\
- & Small/Contr. & 0.17/0.39 & 0.16/0.41 & $+$0.020 \\
+\multirow{4}{*}{LaMP-1} & Base/BM25    & 0.11/0.51 & 0.10/0.49 & $-$0.019 \\
+ & Base/Contr.  & 0.10/0.56 & 0.09/0.51 & $-$0.048 \\
+ & Small/BM25   & 0.10/0.40 & 0.08/0.39 & $-$0.008 \\
+ & Small/Contr. & 0.09/0.39 & 0.08/0.41 & $+$0.020 \\
 \cmidrule(lr){1-5}
-\multirow{4}{*}{LaMP-4} & Base/BM25    & 0.25/0.25 & 0.25/0.25 & $+$0.003 \\
- & Base/Contr.  & 0.24/0.25 & 0.24/0.25 & $+$0.000 \\
- & Small/BM25   & 0.26/0.22 & 0.25/0.27 & $+$0.050$^{**}$ \\
- & Small/Contr. & 0.24/0.26 & 0.23/0.26 & $-$0.007 \\
+\multirow{4}{*}{LaMP-4} & Base/BM25    & 0.18/0.25 & 0.17/0.25 & $+$0.003 \\
+ & Base/Contr.  & 0.17/0.25 & 0.16/0.25 & $+$0.000 \\
+ & Small/BM25   & 0.18/0.22 & 0.17/0.27 & $+$0.050$^{**}$ \\
+ & Small/Contr. & 0.17/0.26 & 0.16/0.26 & $-$0.007 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -438,8 +431,53 @@ favor RandMMR and none favor PL, both on the same (generator, ranker) pair,
 Flan-T5-Small/BM25. We read this as a small hint of a real effect, not a
 demonstrated win.
 
-As a reminder, every cell here is matched against PL's $\alpha$ such that RandMMR's EE-D comes out lower (fairer) or matched, resulting in 26 of the 28
-cells with lower EE-D (mean $-0.009$), and still coming out without a significant utility cost anywhere in the grid.
+RandMMR is also fairer almost everywhere: 26 of the 28 cells have lower EE-D
+(mean $-0.011$), with no significant utility cost anywhere in the grid.
+
+To see which toggle drives that fairness gain, Table~\ref{tab:toggle} adds the
+first option from step 3 above (apply MMR, randomizing only rank 1), using EE-D
+alone since it needs no generation, for one representative cell (LaMP-1,
+Flan-T5-Base/BM25, $N{=}100$); the other seven cells we checked this way
+(LaMP-1 and LaMP-4, both generators, both rankers) show the same pattern.
+
+\begin{table}[t]
+\centering
+\scriptsize
+\setlength{\tabcolsep}{4pt}
+\caption{EE-D by design toggle, LaMP-1 Flan-T5-Base/BM25 ($N{=}100$); the other
+seven cells we checked show the same pattern. ``Ranks randomized using PL'' is
+how many of the top-$k$ picks are drawn stochastically via PL rather than
+chosen deterministically by MMR score.}
+\label{tab:toggle}
+\begin{tabular}{@{}ll cc r@{}}
+\toprule
+Setting & Ranks randomized using PL & $\alpha$ & $\lambda$ & EE-D \\
+\midrule
+Plain PL & all $k$ & 1 & --- & 0.073 \\
+Plain PL & all $k$ & 2 & --- & 0.115 \\
+Plain PL & all $k$ & 4 & --- & 0.682 \\
+Plain PL & all $k$ & 8 & --- & 0.965 \\
+\cmidrule(lr){1-5}
+RandMMR (Table~\ref{tab:hybrid}) & all $k$ & 4 & $U(0.8,1.0)$ & 0.099 \\
+RandMMR & all $k$ & 4 & $0.9$ (fixed) & 0.099 \\
+RandMMR & rank 1 only & 8 & $0.8$ (fixed) & 0.841 \\
+RandMMR & rank 1 only & 8 & $U(0.6,1.0)$ & 0.827 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Randomizing all $k$ ranks takes the $\alpha{=}4$ draw --- 0.682 EE-D on its own
+--- down to 0.099, fairer than plain PL($\alpha{=}2$) itself (0.115), despite
+starting from a much more peaked distribution; a fixed $\lambda{=}0.9$ gives the
+identical 0.099. Randomizing only rank 1 is weaker but still substantial: it
+cuts $\alpha{=}8$ from 0.965 to 0.83--0.84, and again fixed vs.\ resampled
+$\lambda$ barely matters (0.841 vs.\ 0.827) --- for both mechanisms, the gain
+comes from how many ranks are randomized, not from how $\lambda$ is chosen
+within an otherwise-deterministic tail. We read this as a modestly optimistic
+sign: adding diversity-aware structure to PL need not cost more than plain PL
+already costs at that $\alpha$, and can lower disparity substantially even with
+only part of the list randomized --- worth testing on a dataset where diversity
+is known to help utility, which RQ1 suggests LaMP may not be.
 
 \FloatBarrier
 \section{Conclusions and Future Work}
@@ -474,15 +512,17 @@ directions a proper follow-up should pursue:
   utility delta, and utility scored closer to human judgment than ROUGE-L
   allows, would show how much of RQ1--RQ2 survives outside this regime.
   \item \textbf{Task-specific RAG fairness-diversity balancing.} An interesting course of research in our opinion would be to study how much diversity is beneficial for different tasks or queries and how it can be balanced with fairness constraints in an optimal way.
-  \item \textbf{Other reranking designs, and validating RandMMR properly.} RandMMR
-  is one specific point in a larger design space --- PL sampling for exactly the
-  top rank, MMR for everything after it. Comparing it against other splits of that
-  same idea, and against diversity/fairness methods outside the PL/MMR family
-  entirely (e.g.\ xQuAD-style sub-topic coverage), could be an interesting research
-  direction and may possibly yield another diversity-fairness balancing algorithm.
-  Before any of that, though, the two significant cells behind RQ2 need
-  confirming at greater scale (more seeds, all tasks at full $N$) --- our current
-  result is real but too cell-concentrated to call settled.
+  \item \textbf{Other reranking designs, and validating RandMMR properly.} We have
+  only measured utility for one point in RandMMR's design space (all $k$ ranks
+  randomized); the two narrower, EE-D-only variants above are promising but
+  untested for utility, and neither is the only way to combine PL and MMR.
+  Comparing more points in this space, and against diversity/fairness methods
+  outside the PL/MMR family entirely (e.g.\ explicit sub-topic-coverage
+  diversification), could be an interesting research direction and may possibly
+  yield another diversity-fairness balancing algorithm. Before any of that, though, the two
+  significant cells behind RQ2 need confirming at greater scale (more seeds, all
+  tasks at full $N$) --- our current result is real but too cell-concentrated to
+  call settled.
 \end{enumerate}
 
 \newpage
@@ -584,17 +624,18 @@ normalized value for the same underlying generation quality.
 The interval columns add a view the single baseline number cannot: how utility gain
 over baseline changes as fairness (lower EE-D) increases. Six of the eight cells are
 negative and significant at the lowest disparity interval ($[0,0.2)$, where the
-fairness intervention is most aggressive), matching the paper's own pattern there;
-three of those stay significant through the second interval before recovering
-toward zero. Only Flan-T5-Small's two LaMP-1 cells show no significant interval in
-either direction, consistent with their noisiness at this sample size (51 queries)
-already discussed above. No cell now diverges sharply in \emph{shape} from the
-paper's own pattern the way one did under the previous, PL-only ceiling:
-Flan-T5-Small/BM25 on LaMP-4 was previously negative and significant across four of
-its five intervals, unlike the paper's single significant interval for that cell;
-it now matches the paper's one-interval shape, which we read as a sign that
-broadening the ceiling, not any property specific to that cell, was driving the
-earlier divergence.
+fairness intervention is most aggressive), matching the paper's own pattern there
+exactly (same six cells); two of those (both on LaMP-4, Contriever) stay significant
+through the second interval before recovering toward zero. Flan-T5-Small/BM25 on
+LaMP-4 shows a different pattern instead, significant again at $[.6,.8)$
+($n{=}80$) rather than at the second interval --- still far from the
+four-of-five-interval divergence this cell showed under an earlier, PL-only
+normalization ceiling, but no longer the single clean matching interval it showed
+under a smaller EE-D sample. Flan-T5-Small's two LaMP-1 cells remain the noisiest:
+Contriever+Small shows no significant interval in either direction, and
+BM25+Small's nominal significance at $[.2,.4)$ rests on only 2 queries in that bin
+--- not a meaningful result, and consistent with the small-sample noise already
+discussed above for this cell.
 
 The \emph{relative} pattern the paper's own Table 2 shows --- Flan-T5-Base above
 Flan-T5-Small, BM25 above Contriever on LaMP-1, Contriever above BM25 on LaMP-4 ---
@@ -608,24 +649,25 @@ them along with the interval-column outlier noted above.
 \begin{table*}[t]
 \centering
 \scriptsize
-\caption{Deterministic-baseline EU$_{\text{norm}}$ and EE-D-interval utility gain over
-baseline: our reproduction vs.\ the source paper's own Table 2 (Section~\ref{sec:method}),
-Ours/Paper in every cell. $^*p{<}0.05$ (ours: Welch's $t$-test vs.\ pooled baseline;
-paper: unpaired Student's, per their Table 2 caption).}
+\caption{Our reproduction vs.\ the source paper's own Table 2 (see text),
+Ours/Paper in every cell. $^*p{<}0.05$ (ours: Welch's $t$-test vs.\ pooled
+baseline; paper: unpaired Student's, per their Table 2 caption). $^\dagger$this
+interval has only 2 queries for this cell; not a meaningful result despite
+$p{<}0.05$.}
 \label{tab:baseline}
 \begin{tabular}{@{}llcccccc@{}}
 \toprule
 Task & Retriever+Gen. & Baseline & [.0,.2) & [.2,.4) & [.4,.6) & [.6,.8) & [.8,1.0] \\
 \midrule
-LaMP-1 & BM25+Base   & 0.68/0.67 & $-$0.22$^{*}$/$-$0.20$^{*}$ & $-$0.10$^{*}$/$-$0.04 & $-$0.04/$-$0.08 & $-$0.05/$-$0.05 & $-$0.02/$-$0.02 \\
-LaMP-1 & Contr.+Base & 0.64/0.64 & $-$0.14$^{*}$/$-$0.16$^{*}$ & $+$0.01/$+$0.05 & $-$0.06/$-$0.06 & $+$0.05/$+$0.03 & $+$0.01/$+$0.00 \\
-LaMP-1 & BM25+Small  & 0.45/0.31 & $-$0.06/$-$0.12 & $-$0.42/$-$0.13 & $+$0.08/$-$0.18 & $+$0.05/$-$0.02 & $-$0.03/$-$0.15 \\
-LaMP-1 & Contr.+Small& 0.43/0.29 & $-$0.03/$-$0.08 & $-$0.18/$-$0.29 & $-$0.18/$-$0.06 & $+$0.17/$+$0.03 & $-$0.03/$-$0.14 \\
+LaMP-1 & BM25+Base   & 0.68/0.67 & $-$0.20$^{*}$/$-$0.20$^{*}$ & $-$0.01/$-$0.04 & $-$0.08/$-$0.08 & $-$0.04/$-$0.05 & $-$0.02/$-$0.02 \\
+LaMP-1 & Contr.+Base & 0.64/0.64 & $-$0.12$^{*}$/$-$0.16$^{*}$ & $+$0.07/$+$0.05 & $-$0.04/$-$0.06 & $+$0.05/$+$0.03 & $+$0.00/$+$0.00 \\
+LaMP-1 & BM25+Small  & 0.45/0.31 & $-$0.06/$-$0.12 & $-$0.43$^{*\dagger}$/$-$0.13 & $+$0.08/$-$0.18 & $+$0.07/$-$0.02 & $-$0.03/$-$0.15 \\
+LaMP-1 & Contr.+Small& 0.43/0.29 & $-$0.04/$-$0.08 & $-$0.43/$-$0.29 & $-$0.15/$-$0.06 & $+$0.15/$+$0.03 & $-$0.02/$-$0.14 \\
 \midrule
-LaMP-4 & BM25+Base   & 0.29/0.22 & $-$0.08$^{*}$/$-$0.06$^{*}$ & $-$0.02/$+$0.00 & $+$0.02/$+$0.03 & $+$0.00/$+$0.01 & $+$0.00/$+$0.02 \\
-LaMP-4 & Contr.+Base & 0.34/0.27 & $-$0.13$^{*}$/$-$0.10$^{*}$ & $-$0.04$^{*}$/$-$0.02 & $+$0.00/$+$0.01 & $-$0.01/$+$0.00 & $+$0.00/$+$0.01 \\
-LaMP-4 & BM25+Small  & 0.30/0.22 & $-$0.11$^{*}$/$-$0.06$^{*}$ & $-$0.02/$+$0.00 & $-$0.01/$+$0.02 & $-$0.05/$+$0.01 & $-$0.00/$+$0.00 \\
-LaMP-4 & Contr.+Small& 0.33/0.25 & $-$0.10$^{*}$/$-$0.09$^{*}$ & $-$0.04$^{*}$/$-$0.02$^{*}$ & $-$0.01/$+$0.00 & $+$0.02/$+$0.01 & $+$0.00/$+$0.00 \\
+LaMP-4 & BM25+Base   & 0.29/0.22 & $-$0.08$^{*}$/$-$0.06$^{*}$ & $-$0.01/$+$0.00 & $+$0.03/$+$0.03 & $+$0.00/$+$0.01 & $+$0.00/$+$0.02 \\
+LaMP-4 & Contr.+Base & 0.34/0.27 & $-$0.12$^{*}$/$-$0.10$^{*}$ & $-$0.03$^{*}$/$-$0.02 & $+$0.02/$+$0.01 & $-$0.01/$+$0.00 & $+$0.00/$+$0.01 \\
+LaMP-4 & BM25+Small  & 0.30/0.22 & $-$0.11$^{*}$/$-$0.06$^{*}$ & $-$0.02/$+$0.00 & $+$0.00/$+$0.02 & $-$0.06$^{*}$/$+$0.01 & $-$0.00/$+$0.00 \\
+LaMP-4 & Contr.+Small& 0.33/0.25 & $-$0.09$^{*}$/$-$0.09$^{*}$ & $-$0.03$^{*}$/$-$0.02$^{*}$ & $-$0.00/$+$0.00 & $+$0.02/$+$0.01 & $+$0.00/$+$0.00 \\
 \bottomrule
 \end{tabular}
 \end{table*}
@@ -638,55 +680,55 @@ Section~\ref{sec:rq2}'s 12-of-28 tally (Table~\ref{tab:hybrid} in the main text 
 only the two tasks with a published baseline). Columns are as in
 Table~\ref{tab:hybrid}: PL $\alpha$ is the plain-PL condition matched to RandMMR's own
 EE-D for that cell (uniformly $\alpha{=}2$ here), EE-D/EU pairs are macro means, and
-$\Delta$EU is RandMMR's EU$_{\text{norm}}$ minus the matched PL's, both recomputed at
-a uniform $N{=}10$ samples/query for every cell in the table.
+$\Delta$EU is RandMMR's EU$_{\text{norm}}$ minus the matched PL's. EE-D is computed
+at $N{=}100$ samples/query, EU at $N{=}10$ (Section~\ref{sec:method}), for every
+cell in the table.
 
 \begin{table*}[t]
 \centering
 \scriptsize
-\caption{RandMMR ($\alpha{=}4$, $\lambda\sim U(0.8,1.0)$) vs.\ matched plain PL, all
-$7\times4{=}28$ cells, both conditions at $N{=}10$. Two of the 28 cells reach
-significance, both favoring RandMMR (Flan-T5-Small/BM25 on LaMP-4, $p{<}0.01$, and
-on LaMP-2, $p{<}0.05$); Welch's $t$-test vs.\ matched PL.}
+\caption{RandMMR vs.\ matched plain PL (see text), all $7\times4{=}28$ cells,
+EE-D at $N{=}100$, EU at $N{=}10$. $^{*}p{<}0.05$, $^{**}p{<}0.01$ (Welch's
+$t$-test vs.\ matched PL).}
 \label{tab:hybrid-full}
 \begin{tabular}{@{}lllrllr@{}}
 \toprule
 Task & Generator & Ranker & PL $\alpha$ & PL EE-D/EU & RandMMR EE-D/EU & $\Delta$EU \\
 \midrule
-\multirow{4}{*}{LaMP-1} & T5-Base & BM25 & 2 & 0.19/0.51 & 0.19/0.49 & $-0.019$ \\
- & T5-Base & Contriever & 2 & 0.18/0.56 & 0.17/0.51 & $-0.048$ \\
- & T5-Small & BM25 & 2 & 0.18/0.40 & 0.17/0.39 & $-0.008$ \\
- & T5-Small & Contriever & 2 & 0.17/0.39 & 0.16/0.41 & $+0.020$ \\
+\multirow{4}{*}{LaMP-1} & T5-Base & BM25 & 2 & 0.11/0.51 & 0.10/0.49 & $-0.019$ \\
+ & T5-Base & Contriever & 2 & 0.10/0.56 & 0.09/0.51 & $-0.048$ \\
+ & T5-Small & BM25 & 2 & 0.10/0.40 & 0.08/0.39 & $-0.008$ \\
+ & T5-Small & Contriever & 2 & 0.09/0.39 & 0.08/0.41 & $+0.020$ \\
 \cmidrule(lr){1-7}
-\multirow{4}{*}{LaMP-2} & T5-Base & BM25 & 2 & 0.38/0.32 & 0.36/0.31 & $-0.008$ \\
- & T5-Base & Contriever & 2 & 0.38/0.32 & 0.36/0.31 & $-0.006$ \\
- & T5-Small & BM25 & 2 & 0.34/0.24 & 0.34/0.35 & $+0.108^{*}$ \\
- & T5-Small & Contriever & 2 & 0.36/0.38 & 0.34/0.37 & $-0.011$ \\
+\multirow{4}{*}{LaMP-2} & T5-Base & BM25 & 2 & 0.32/0.32 & 0.30/0.31 & $-0.008$ \\
+ & T5-Base & Contriever & 2 & 0.32/0.32 & 0.30/0.31 & $-0.006$ \\
+ & T5-Small & BM25 & 2 & 0.29/0.24 & 0.28/0.35 & $+0.108^{*}$ \\
+ & T5-Small & Contriever & 2 & 0.29/0.38 & 0.28/0.37 & $-0.011$ \\
 \cmidrule(lr){1-7}
-\multirow{4}{*}{LaMP-3} & T5-Base & BM25 & 2 & 0.15/0.93 & 0.15/0.93 & $-0.001$ \\
- & T5-Base & Contriever & 2 & 0.15/0.92 & 0.14/0.92 & $-0.001$ \\
- & T5-Small & BM25 & 2 & 0.14/0.87 & 0.14/0.89 & $+0.016$ \\
- & T5-Small & Contriever & 2 & 0.15/0.89 & 0.14/0.89 & $-0.000$ \\
+\multirow{4}{*}{LaMP-3} & T5-Base & BM25 & 2 & 0.07/0.93 & 0.06/0.93 & $-0.001$ \\
+ & T5-Base & Contriever & 2 & 0.06/0.92 & 0.05/0.92 & $-0.001$ \\
+ & T5-Small & BM25 & 2 & 0.06/0.87 & 0.05/0.89 & $+0.016$ \\
+ & T5-Small & Contriever & 2 & 0.06/0.89 & 0.05/0.89 & $-0.000$ \\
 \cmidrule(lr){1-7}
-\multirow{4}{*}{LaMP-4} & T5-Base & BM25 & 2 & 0.25/0.25 & 0.25/0.25 & $+0.003$ \\
- & T5-Base & Contriever & 2 & 0.24/0.25 & 0.24/0.25 & $+0.000$ \\
- & T5-Small & BM25 & 2 & 0.26/0.22 & 0.25/0.27 & $+0.050^{**}$ \\
- & T5-Small & Contriever & 2 & 0.24/0.26 & 0.23/0.26 & $-0.007$ \\
+\multirow{4}{*}{LaMP-4} & T5-Base & BM25 & 2 & 0.18/0.25 & 0.17/0.25 & $+0.003$ \\
+ & T5-Base & Contriever & 2 & 0.17/0.25 & 0.16/0.25 & $+0.000$ \\
+ & T5-Small & BM25 & 2 & 0.18/0.22 & 0.17/0.27 & $+0.050^{**}$ \\
+ & T5-Small & Contriever & 2 & 0.17/0.26 & 0.16/0.26 & $-0.007$ \\
 \cmidrule(lr){1-7}
-\multirow{4}{*}{LaMP-5} & T5-Base & BM25 & 2 & 0.18/0.53 & 0.17/0.53 & $+0.002$ \\
- & T5-Base & Contriever & 2 & 0.18/0.53 & 0.18/0.53 & $+0.002$ \\
- & T5-Small & BM25 & 2 & 0.18/0.42 & 0.17/0.41 & $-0.007$ \\
- & T5-Small & Contriever & 2 & 0.18/0.41 & 0.18/0.41 & $-0.006$ \\
+\multirow{4}{*}{LaMP-5} & T5-Base & BM25 & 2 & 0.10/0.53 & 0.09/0.53 & $+0.002$ \\
+ & T5-Base & Contriever & 2 & 0.11/0.53 & 0.09/0.53 & $+0.002$ \\
+ & T5-Small & BM25 & 2 & 0.10/0.42 & 0.09/0.41 & $-0.007$ \\
+ & T5-Small & Contriever & 2 & 0.11/0.41 & 0.09/0.41 & $-0.006$ \\
 \cmidrule(lr){1-7}
-\multirow{4}{*}{LaMP-6} & T5-Base & BM25 & 2 & 0.24/0.41 & 0.23/0.41 & $+0.001$ \\
- & T5-Base & Contriever & 2 & 0.24/0.40 & 0.23/0.40 & $-0.001$ \\
- & T5-Small & BM25 & 2 & 0.24/0.39 & 0.23/0.39 & $-0.001$ \\
- & T5-Small & Contriever & 2 & 0.24/0.38 & 0.23/0.38 & $-0.002$ \\
+\multirow{4}{*}{LaMP-6} & T5-Base & BM25 & 2 & 0.16/0.41 & 0.15/0.41 & $+0.001$ \\
+ & T5-Base & Contriever & 2 & 0.16/0.40 & 0.14/0.40 & $-0.001$ \\
+ & T5-Small & BM25 & 2 & 0.16/0.39 & 0.15/0.39 & $-0.001$ \\
+ & T5-Small & Contriever & 2 & 0.16/0.38 & 0.14/0.38 & $-0.002$ \\
 \cmidrule(lr){1-7}
-\multirow{4}{*}{LaMP-7} & T5-Base & BM25 & 2 & 0.50/0.66 & 0.50/0.65 & $-0.007$ \\
- & T5-Base & Contriever & 2 & 0.49/0.65 & 0.46/0.65 & $+0.004$ \\
- & T5-Small & BM25 & 2 & 0.54/0.53 & 0.53/0.54 & $+0.009$ \\
- & T5-Small & Contriever & 2 & 0.52/0.52 & 0.50/0.53 & $+0.001$ \\
+\multirow{4}{*}{LaMP-7} & T5-Base & BM25 & 2 & 0.47/0.66 & 0.47/0.65 & $-0.007$ \\
+ & T5-Base & Contriever & 2 & 0.44/0.65 & 0.42/0.65 & $+0.004$ \\
+ & T5-Small & BM25 & 2 & 0.50/0.53 & 0.50/0.54 & $+0.009$ \\
+ & T5-Small & Contriever & 2 & 0.48/0.52 & 0.47/0.53 & $+0.001$ \\
 \bottomrule
 \end{tabular}
 \end{table*}

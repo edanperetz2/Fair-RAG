@@ -1,0 +1,167 @@
+\documentclass[10pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage{placeins}
+\usepackage{hyperref}
+
+\title{Auxiliary: Tables 2, 3, and 4 Recreated with EE-D at $N{=}100$}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\noindent\textbf{This is a working diagnostic document, not part of the paper.}
+Below are exact recreations of the paper's Table~2 (\texttt{tab:hybrid}), Table~3
+(\texttt{tab:baseline}, Appendix A), and Table~4 (\texttt{tab:hybrid-full}, Appendix
+B) --- same rows, same columns, same PL($\alpha$) matches, same
+EU$_{\text{norm}}$/$\Delta$EU/significance stars (all untouched, still from the real
+$N{=}10$ generation runs) --- with EE-D recomputed at $N{=}100$ reranking samples.
+For Tables 2 and 4 this is a direct per-cell swap (EE-D only depends on reranking
+output, not on which lists were sent to the LLM). Table 3 is different: since it
+bins each \emph{query} by its own EE-D, this required recomputing per-query EE-D at
+$N{=}100$ and re-binning, not just swapping a cell mean --- see \S3 for detail.
+Re-matching each cell's PL $\alpha$ using $N{=}100$ estimates (rather than reusing
+the $N{=}10$-matched $\alpha{=}2$) was also checked: it does not change any of the
+28 cells' matched $\alpha$ (still $\alpha{=}2$ throughout). Nothing here has been
+written into the actual paper file.
+
+\section{Table 2 recreation (LaMP-1 and LaMP-4 only)}
+
+\begin{table}[h]
+\centering
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\caption{[$N{=}100$ EE-D version] RandMMR ($\alpha{=}4$, $\lambda\sim U(0.8,1.0)$)
+vs.\ matched plain PL ($\alpha{=}2$ throughout), LaMP-1 and LaMP-4 (macro means).
+EE-D now from $N{=}100$ reranking samples (EU unchanged, still $N{=}10$ generation).
+Compare against the paper's actual Table~2.}
+\begin{tabular}{@{}ll rr r@{}}
+\toprule
+& & \multicolumn{2}{c}{EE-D($N{=}100$)/EU} & \\
+\cmidrule(lr){3-4}
+Task & Gen./Rank. & PL & RandMMR & $\Delta$EU \\
+\midrule
+\multirow{4}{*}{LaMP-1} & Base/BM25    & 0.11/0.51 & 0.10/0.49 & $-$0.019 \\
+ & Base/Contr.  & 0.10/0.56 & 0.09/0.51 & $-$0.048 \\
+ & Small/BM25   & 0.10/0.40 & 0.08/0.39 & $-$0.008 \\
+ & Small/Contr. & 0.09/0.39 & 0.08/0.41 & $+$0.020 \\
+\cmidrule(lr){1-5}
+\multirow{4}{*}{LaMP-4} & Base/BM25    & 0.18/0.25 & 0.17/0.25 & $+$0.003 \\
+ & Base/Contr.  & 0.17/0.25 & 0.16/0.25 & $+$0.000 \\
+ & Small/BM25   & 0.18/0.22 & 0.17/0.27 & $+$0.050$^{**}$ \\
+ & Small/Contr. & 0.17/0.26 & 0.16/0.26 & $-$0.007 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\FloatBarrier
+\section{Table 3 recreation (EE-D-interval utility gain, LaMP-1 and LaMP-4)}
+
+Unlike Tables 2 and 4, Table 3 assigns each individual \emph{query} to one of five
+EE-D intervals based on that query's own EE-D under a given PL $\alpha$, then
+reports the mean utility gain (vs.\ the deterministic baseline) of all queries
+landing in that bin. Swapping in $N{=}100$ EE-D therefore changes which bin each
+query falls into, not just a summary value --- this recomputes per-query EE-D at
+$N{=}100$ for all four PL $\alpha\in\{1,2,4,8\}$ across all 8 (task, generator,
+ranker) cells, then re-bins and re-aggregates utility gain (utility itself, and
+which queries exist, is completely unchanged --- still the real $N{=}10$ generation
+runs). The ``Baseline'' column (deterministic EU$_{\text{norm}}$) is unaffected by
+any of this and is reproduced as-is. The source paper's own numbers (``Paper''
+column) are of course also unaffected.
+
+\begin{table*}[h]
+\centering
+\scriptsize
+\caption{[$N{=}100$ EE-D-interval binning] Deterministic-baseline EU$_{\text{norm}}$
+and EE-D-interval utility gain over baseline: Ours($N{=}100$)/Paper in every cell.
+$^*p{<}0.05$ (ours: Welch's $t$-test vs.\ pooled baseline). Compare against the
+paper's actual Table~3.}
+\begin{tabular}{@{}llcccccc@{}}
+\toprule
+Task & Retriever+Gen. & Baseline & [.0,.2) & [.2,.4) & [.4,.6) & [.6,.8) & [.8,1.0] \\
+\midrule
+LaMP-1 & BM25+Base   & 0.68/0.67 & $-$0.20$^{*}$/$-$0.20$^{*}$ & $-$0.01/$-$0.04 & $-$0.08/$-$0.08 & $-$0.04/$-$0.05 & $-$0.02/$-$0.02 \\
+LaMP-1 & Contr.+Base & 0.64/0.64 & $-$0.12$^{*}$/$-$0.16$^{*}$ & $+$0.07/$+$0.05 & $-$0.04/$-$0.06 & $+$0.05/$+$0.03 & $+$0.00/$+$0.00 \\
+LaMP-1 & BM25+Small  & 0.45/0.31 & $-$0.06/$-$0.12 & $-$0.43$^{*\dagger}$/$-$0.13 & $+$0.08/$-$0.18 & $+$0.07/$-$0.02 & $-$0.03/$-$0.15 \\
+LaMP-1 & Contr.+Small& 0.43/0.29 & $-$0.04/$-$0.08 & $-$0.43$^\dagger$/$-$0.29 & $-$0.15/$-$0.06 & $+$0.15/$+$0.03 & $-$0.02/$-$0.14 \\
+\midrule
+LaMP-4 & BM25+Base   & 0.29/0.22 & $-$0.08$^{*}$/$-$0.06$^{*}$ & $-$0.01/$+$0.00 & $+$0.03/$+$0.03 & $+$0.00/$+$0.01 & $+$0.00/$+$0.02 \\
+LaMP-4 & Contr.+Base & 0.34/0.27 & $-$0.12$^{*}$/$-$0.10$^{*}$ & $-$0.03$^{*}$/$-$0.02 & $+$0.02/$+$0.01 & $-$0.01/$+$0.00 & $+$0.00/$+$0.01 \\
+LaMP-4 & BM25+Small  & 0.30/0.22 & $-$0.11$^{*}$/$-$0.06$^{*}$ & $-$0.02/$+$0.00 & $+$0.00/$+$0.02 & $-$0.06$^{*}$/$+$0.01 & $-$0.00/$+$0.00 \\
+LaMP-4 & Contr.+Small& 0.33/0.25 & $-$0.09$^{*}$/$-$0.09$^{*}$ & $-$0.03$^{*}$/$-$0.02$^{*}$ & $-$0.00/$+$0.00 & $+$0.02/$+$0.01 & $+$0.00/$+$0.00 \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\noindent $^\dagger$ this bin has almost no data at either $N$ ($n{=}1$--$2$ queries
+for LaMP-1 [.2,.4) under both $N{=}10$ and $N{=}100$) --- the large swing here is
+bin-starvation noise, not a meaningful comparison. Every other cell/bin combination
+is stable between $N{=}10$ and $N{=}100$: signs and rough magnitudes match, and the
+only \emph{new} significant result is LaMP-4 BM25+Small's [.6,.8) bin ($n{=}80$,
+not significant at $N{=}10$).
+
+\FloatBarrier
+\section{Table 4 recreation (Appendix B, all 28 cells)}
+
+\begin{table}[h]
+\centering
+\scriptsize
+\caption{[$N{=}100$ EE-D version] RandMMR ($\alpha{=}4$, $\lambda\sim U(0.8,1.0)$)
+vs.\ matched plain PL, all $7\times4{=}28$ cells. EE-D now from $N{=}100$
+reranking samples; EU$_{\text{norm}}$, $\Delta$EU, and significance stars
+unchanged from the paper's real $N{=}10$ generation runs. Compare against the
+paper's actual Table~4 (Appendix B).}
+\begin{tabular}{@{}lllrllr@{}}
+\toprule
+Task & Generator & Ranker & PL $\alpha$ & PL EE-D($N{=}100$)/EU & RandMMR EE-D($N{=}100$)/EU & $\Delta$EU \\
+\midrule
+\multirow{4}{*}{LaMP-1}
+ & T5-Base & BM25 & 2 & 0.11/0.51 & 0.10/0.49 & $-0.019$ \\
+ & T5-Base & Contriever & 2 & 0.10/0.56 & 0.09/0.51 & $-0.048$ \\
+ & T5-Small & BM25 & 2 & 0.10/0.40 & 0.08/0.39 & $-0.008$ \\
+ & T5-Small & Contriever & 2 & 0.09/0.39 & 0.08/0.41 & $+0.020$ \\
+\cmidrule(lr){1-7}
+\multirow{4}{*}{LaMP-2}
+ & T5-Base & BM25 & 2 & 0.32/0.32 & 0.30/0.31 & $-0.008$ \\
+ & T5-Base & Contriever & 2 & 0.32/0.32 & 0.30/0.31 & $-0.006$ \\
+ & T5-Small & BM25 & 2 & 0.29/0.24 & 0.28/0.35 & $+0.108$$^{*}$ \\
+ & T5-Small & Contriever & 2 & 0.29/0.38 & 0.28/0.37 & $-0.011$ \\
+\cmidrule(lr){1-7}
+\multirow{4}{*}{LaMP-3}
+ & T5-Base & BM25 & 2 & 0.07/0.93 & 0.06/0.93 & $-0.001$ \\
+ & T5-Base & Contriever & 2 & 0.06/0.92 & 0.05/0.92 & $-0.001$ \\
+ & T5-Small & BM25 & 2 & 0.06/0.87 & 0.05/0.89 & $+0.016$ \\
+ & T5-Small & Contriever & 2 & 0.06/0.89 & 0.05/0.89 & $-0.000$ \\
+\cmidrule(lr){1-7}
+\multirow{4}{*}{LaMP-4}
+ & T5-Base & BM25 & 2 & 0.18/0.25 & 0.17/0.25 & $+0.003$ \\
+ & T5-Base & Contriever & 2 & 0.17/0.25 & 0.16/0.25 & $+0.000$ \\
+ & T5-Small & BM25 & 2 & 0.18/0.22 & 0.17/0.27 & $+0.050$$^{**}$ \\
+ & T5-Small & Contriever & 2 & 0.17/0.26 & 0.16/0.26 & $-0.007$ \\
+\cmidrule(lr){1-7}
+\multirow{4}{*}{LaMP-5}
+ & T5-Base & BM25 & 2 & 0.10/0.53 & 0.09/0.53 & $+0.002$ \\
+ & T5-Base & Contriever & 2 & 0.11/0.53 & 0.09/0.53 & $+0.002$ \\
+ & T5-Small & BM25 & 2 & 0.10/0.42 & 0.09/0.41 & $-0.007$ \\
+ & T5-Small & Contriever & 2 & 0.11/0.41 & 0.09/0.41 & $-0.006$ \\
+\cmidrule(lr){1-7}
+\multirow{4}{*}{LaMP-6}
+ & T5-Base & BM25 & 2 & 0.16/0.41 & 0.15/0.41 & $+0.001$ \\
+ & T5-Base & Contriever & 2 & 0.16/0.40 & 0.14/0.40 & $-0.001$ \\
+ & T5-Small & BM25 & 2 & 0.16/0.39 & 0.15/0.39 & $-0.001$ \\
+ & T5-Small & Contriever & 2 & 0.16/0.38 & 0.14/0.38 & $-0.002$ \\
+\cmidrule(lr){1-7}
+\multirow{4}{*}{LaMP-7}
+ & T5-Base & BM25 & 2 & 0.47/0.66 & 0.47/0.65 & $-0.007$ \\
+ & T5-Base & Contriever & 2 & 0.44/0.65 & 0.42/0.65 & $+0.004$ \\
+ & T5-Small & BM25 & 2 & 0.50/0.53 & 0.50/0.54 & $+0.009$ \\
+ & T5-Small & Contriever & 2 & 0.48/0.52 & 0.47/0.53 & $+0.001$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\end{document}

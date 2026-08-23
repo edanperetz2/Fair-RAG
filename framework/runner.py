@@ -57,6 +57,8 @@ from framework.reranking import (
     generate_pl_lists,
     generate_pl_mmr_lists,
     generate_pl_randmmr_lists,
+    generate_pl_randmmr_fixed_lists,
+    generate_pl_randmmr_stochastic_lists,
     generate_pl_xquad_lists,
 )
 from framework.retrieval import load_retrieval_results
@@ -69,7 +71,7 @@ def _log(msg: str) -> None:
 
 def units_per_query(rerank_cfg) -> int:
     """Number of (qid, list_id) work units one query produces for a given RerankConfig."""
-    return rerank_cfg.pl_samples if rerank_cfg.method in ("pl", "pl_mmr", "pl_randmmr", "pl_xquad") else 1
+    return rerank_cfg.pl_samples if rerank_cfg.method in ("pl", "pl_mmr", "pl_randmmr", "pl_randmmr_fixed", "pl_randmmr_stochastic", "pl_xquad") else 1
 
 
 class ExperimentRunner:
@@ -468,6 +470,39 @@ class ExperimentRunner:
                 pl_alpha=rr.pl_alpha,
                 lambda_low=rr.pl_randmmr_lambda_low,
                 lambda_high=rr.pl_randmmr_lambda_high,
+                pl_samples=rr.pl_samples,
+                top_k=cfg.retrieval.top_k,
+                seed=rr.seed,
+                qid=qid,
+            )
+
+        if rr.method == "pl_randmmr_fixed":
+            pids_in_order = [p[0] for p in ret_for_qid]
+            profiles_in_order = dataset.find_profiles_by_pids(qid, pids_in_order)
+            return generate_pl_randmmr_fixed_lists(
+                retrieval_results_for_qid=ret_for_qid,
+                profiles_for_qid=profiles_in_order,
+                ranker=cfg.retrieval.ranker,
+                pl_alpha=rr.pl_alpha,
+                lambda_low=rr.pl_randmmr_lambda_low,
+                lambda_high=rr.pl_randmmr_lambda_high,
+                pl_samples=rr.pl_samples,
+                top_k=cfg.retrieval.top_k,
+                seed=rr.seed,
+                qid=qid,
+            )
+
+        if rr.method == "pl_randmmr_stochastic":
+            pids_in_order = [p[0] for p in ret_for_qid]
+            profiles_in_order = dataset.find_profiles_by_pids(qid, pids_in_order)
+            return generate_pl_randmmr_stochastic_lists(
+                retrieval_results_for_qid=ret_for_qid,
+                profiles_for_qid=profiles_in_order,
+                ranker=cfg.retrieval.ranker,
+                pl_alpha=rr.pl_alpha,
+                lambda_low=rr.pl_randmmr_lambda_low,
+                lambda_high=rr.pl_randmmr_lambda_high,
+                tau=rr.pl_randmmr_tau,
                 pl_samples=rr.pl_samples,
                 top_k=cfg.retrieval.top_k,
                 seed=rr.seed,
