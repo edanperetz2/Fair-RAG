@@ -181,7 +181,7 @@ truncated to $k=5$, matching \cite{eunkim2025fairrag}'s reported $k$.
 Generator & cand. & \%use & cand. & \%use & cand. & \%use & cand. & \%use & cand. & \%use & cand. & \%use & cand. & \%use \\
 \midrule
 Flan-T5-Small & 123.5 & 9.5 & 52.8 & 22.5 & 189.8 & 34.3 & 192.2 & 27.1 & 106.1 & 24.8 & 86.0 & 35.9 & 19.4 & 45.5 \\
-Flan-T5-Base  & 102.9 & 22.5 & 45.6 & 29.9 & 185.3 & 41.2 & 187.0 & 31.6 & 105.6 & 25.7 & 86.2 & 38.7 & 21.7 & 33.0 \\
+Flan-T5-Base  & 102.9 & 22.5 & 45.6 & 29.9 & 185.3 & 41.2 & 187.0 & 31.6 & 105.6 & 25.7 & 86.2 & 38.6 & 21.7 & 33.0 \\
 \bottomrule
 \end{tabular}
 \end{table*}
@@ -301,9 +301,9 @@ Figure~\ref{fig:diversity} shows LaMP-4 as a representative example: PL and MMR 
 raise list diversity as their dial is relaxed ($\alpha{:}8{\to}1$,
 $\lambda{:}0.85{\to}0.3$). The other six tasks show the same qualitative pattern, but
 the swing's size is task-dependent --- largest for LaMP-6 (mean ILD $0.65 \to 0.82$)
-and smallest for LaMP-7 (everything within $0.92$--$0.95$), consistent with LaMP-7
-having very few candidate documents per query ($\sim$20, Table~\ref{tab:corpus}) and
-thus little room to diversify.
+and smallest for LaMP-2 (everything within $0.92$--$0.93$); LaMP-7 is close behind
+($0.92$--$0.96$), consistent with LaMP-7 having very few candidate documents per
+query ($\sim$20, Table~\ref{tab:corpus}) and thus little room to diversify.
 
 The key test is whether this diversity increase predicts \emph{higher} utility.
 
@@ -386,9 +386,12 @@ against plain PL for every one of the 28 (task, generator, ranker) cells, with
 EE-D computed at $N{=}100$ samples/query and EU at $N{=}10$
 (Section~\ref{sec:method}). Each cell is matched to whichever PL
 $\alpha \in \{1,2,4,8\}$ has EE-D closest to RandMMR's own, breaking ties toward
-equal or \emph{higher} PL disparity so the comparison is never handed an
-artificially fairer PL point to beat --- in every one of the 28 cells, that turns
-out to be $\alpha{=}2$.
+equal or \emph{higher} PL disparity so the comparison is not usually handed an
+artificially fairer PL point to beat --- except within a 0.02 EE-D tolerance, where
+the closest $\alpha$ is used regardless of direction; this affects 2 of the 28 cells
+(LaMP-7, BM25, both generators), where the matched PL's EE-D sits marginally below
+RandMMR's own (by $\leq$0.003). In every one of the 28 cells, the matched $\alpha$
+turns out to be 2.
 
 \begin{table}[t]
 \centering
