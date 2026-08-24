@@ -41,7 +41,7 @@ We hypothesized that this occurs because fairness interventions implicitly incre
 and tested this on the LaMP benchmark by contrasting a deterministic diversity-relevance re-ranker (MMR) against stochastic sampling (Plackett-Luce).
 While we could not verify this diversity-mediation hypothesis, our analysis points to a different explanation: the LaMP dataset is atypical and noisy,
 and might not inherently benefit from diversity, which likely explains the original paper's absent fairness-utility trade-off.
-Alongside this, we explore RandMMR---a hybrid combining stochastic fairness draws with relevance-aware diversification---and find potentially useful properties when pairing the two.\end{abstract}
+Alongside this, we explore RandMMR - a hybrid combining stochastic fairness draws with relevance-aware diversification and find potentially useful properties when pairing the two.\end{abstract}
 \vspace{0.3em}
 
 \section{Introduction and Problem Formulation}
@@ -123,10 +123,13 @@ oracle-ranking upper bound before being averaged across $N$ sampled rankings.
 
 \textbf{Diversity in retrieval.} Maximal Marginal Relevance (MMR)
 \cite{carbonell1998use} is the classic deterministic diversity-relevance trade-off
-re-ranker, greedily selecting each next item to maximize $\lambda \cdot
-\mathrm{relevance} - (1-\lambda)\cdot\max\text{-similarity-to-selected}$; we use it
-as a second, non-stochastic diversification arm alongside PL. Intra-list diversity
-via pairwise dissimilarity follows \cite{smyth2001similarity}.
+re-ranker: from the not-yet-selected candidates, it greedily picks the document $d$
+maximizing $\lambda \cdot \mathrm{rel}(d, q) - (1-\lambda) \max_{d' \in S}
+\mathrm{sim}(d, d')$, where $\mathrm{rel}(d,q)$ is $d$'s relevance score for query
+$q$, $S$ is the set of already-selected documents, and $\mathrm{sim}$ is a pairwise
+similarity function; we use it as a second, non-stochastic diversification arm
+alongside PL. Intra-list diversity via pairwise dissimilarity follows
+\cite{smyth2001similarity}.
 
 \section{Dataset}
 \label{sec:data}
@@ -369,12 +372,12 @@ three choices applied on top of the top-$k$ candidates:
   Gumbel-max sample proportional to relevance$^\alpha$ over the initial ranking.
   \item \textbf{Ranks $2..k$}: at each rank $i$ being randomized, draw a fresh
   $\lambda \sim \mathrm{Unif}(\lambda_{\text{low}}, \lambda_{\text{high}})$ and
-  compute the MMR score ($\lambda\cdot\text{rel} -
-  (1-\lambda)\cdot\text{max-sim-to-selected}$) for every candidate not already
-  placed at ranks $1..i{-}1$; then pick the next document either
-  \emph{deterministically} --- the candidate with the highest MMR score --- or
-  \emph{stochastically} --- a further PL($\alpha$)-style Gumbel-max draw over
-  those MMR scores.
+  compute the MMR score $\lambda\cdot\mathrm{rel}(d,q) - (1-\lambda)
+  \max_{d'\in S}\mathrm{sim}(d,d')$ for every candidate $d$ not already placed
+  at ranks $1..i{-}1$ (with $S$ the documents already selected at those ranks);
+  then pick the next document either \emph{deterministically} --- the candidate
+  with the highest MMR score --- or \emph{stochastically} --- a further
+  PL($\alpha$)-style Gumbel-max draw over those MMR scores.
 \end{enumerate}
 
 The only setting we ran with a full utility comparison randomizes all $k$
