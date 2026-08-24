@@ -35,19 +35,13 @@
 
 \begin{abstract}
 \noindent
-Fairness-aware stochastic rerankers are usually expected to trade ranking quality for
-more equitable item exposure, yet Eun Kim and Diaz (2025) report that RAG systems
-built on such rerankers can maintain, and sometimes exceed, the generation utility of
-deterministic ranking. We set out to test whether this holds because fairness
-interventions implicitly increase retrieved-item diversity, a property often
-beneficial for RAG generation in its own right, reproducing the setup on the LaMP
-benchmark and contrasting a deterministic diversity-relevance re-ranker (MMR)
-against stochastic, relevance-proportional sampling (Plackett-Luce, PL). While we could
-not verify this diversity-mediation hypothesis, we surface reasons for skepticism about the evidence base itself described in section 3.1 
-and we explore RandMMR, a hybrid reranker combining PL's stochastic draw
-with MMR's relevance-aware diversification and find an interesting and possibly useful property when combining the two.
-\end{abstract}
-
+Fairness-aware stochastic rerankers are usually expected to trade ranking quality for equitable item exposure,
+yet Eun Kim and Diaz (2025) report that RAG systems can  bypass this trade-off.
+We hypothesized that this occurs because fairness interventions implicitly increase retrieved-item diversity,
+and tested this on the LaMP benchmark by contrasting a deterministic diversity-relevance re-ranker (MMR) against stochastic sampling (Plackett-Luce).
+While we could not verify this diversity-mediation hypothesis, our analysis points to a different explanation: the LaMP dataset is atypical and noisy,
+and might not inherently benefit from diversity, which likely explains the original paper's absent fairness-utility trade-off.
+Alongside this, we explore RandMMR---a hybrid combining stochastic fairness draws with relevance-aware diversification---and find potentially useful properties when pairing the two.\end{abstract}
 \vspace{0.3em}
 
 \section{Introduction and Problem Formulation}
