@@ -262,8 +262,10 @@ the paper's $N{=}100$ samples/query across 28 (task, generator, ranker) cells an
 no generation, so we compute it at $N{=}100$ everywhere in this paper. Second, our
 EU normalization ceiling (below) draws only 3 random oracle permutations against
 the paper's much larger sample, which can make our normalized EU higher than a
-fuller ceiling would allow --- see the per-cell comparison against the paper's own
-numbers in Table~\ref{tab:baseline}, Appendix~\ref{app:baseline}. Third, as noted
+fuller ceiling would allow --- this only affects queries where that gold ceiling,
+not the model ceiling defined below, is the larger (binding) term in the
+normalization; see the per-cell comparison against the paper's own numbers in
+Table~\ref{tab:baseline}, Appendix~\ref{app:baseline}. Third, as noted
 in Section~\ref{sec:data}, we cover two generators and two retrievers, not the
 paper's full grid.
 
@@ -449,10 +451,9 @@ Flan-T5-Base/BM25, $N{=}100$); the other seven cells we checked this way
 \centering
 \scriptsize
 \setlength{\tabcolsep}{4pt}
-\caption{EE-D by design toggle, LaMP-1 Flan-T5-Base/BM25 ($N{=}100$); the other
-seven cells we checked show the same pattern. ``Ranks randomized using PL'' is
-how many of the top-$k$ picks are drawn stochastically via PL rather than
-chosen deterministically by MMR score.}
+\caption{``Ranks randomized using PL'' is how many of the top-$k$ picks are
+drawn stochastically via PL rather than chosen deterministically by MMR
+score.}
 \label{tab:toggle}
 \begin{tabular}{@{}ll cc r@{}}
 \toprule
