@@ -38,7 +38,7 @@ class RetrievalConfig:
 
 @dataclass
 class RerankConfig:
-    method: str = "pl"                  # "pl" (Plackett-Luce) | "mmr" | "pl_mmr" | "pl_randmmr" | "pl_randmmr_fixed" | "pl_randmmr_stochastic" | "pl_xquad" | "deterministic"
+    method: str = "pl"                  # "pl" (Plackett-Luce) | "mmr" | "pl_mmr" | "pl_randmmr" | "pl_randmmr_mmrscore" | "pl_randmmr_fixed" | "pl_randmmr_stochastic" | "pl_xquad" | "deterministic"
     # Plackett-Luce params
     pl_alpha: int = 1                   # temperature α; higher = more deterministic
     pl_samples: int = 10                # N stochastic samples per query
@@ -47,6 +47,14 @@ class RerankConfig:
     # pl_randmmr params: rank 1 via pure PL(pl_alpha), ranks 2..k via the same
     # diversity-penalized sampling as pl_mmr but with lambda drawn fresh per sample
     # from Uniform(pl_randmmr_lambda_low, pl_randmmr_lambda_high)
+    # pl_randmmr_mmrscore reuses these same fields but changes the order of
+    # operations: rank 1 identical PL(pl_alpha) draw; ranks 2..k compute the
+    # literal MMR score (lambda*rel - (1-lambda)*max_sim, plain [0,1] rel,
+    # recomputed fresh every rank), THEN normalise THAT combined score to
+    # [1,2] and raise it to pl_alpha, THEN Gumbel-max sample - i.e. alpha's
+    # temperature is applied to the diversity-adjusted score as a whole,
+    # not to relevance alone with an un-exponentiated discount multiplied in
+    # afterward (which is what pl_randmmr does). See framework/reranking.py.
     # pl_randmmr_fixed and pl_randmmr_stochastic reuse these same two fields:
     # rank 1 via pure PL(pl_alpha), ranks 2..k with lambda drawn fresh PER RANK
     # (not once per list) from Uniform(pl_randmmr_lambda_low, pl_randmmr_lambda_high)
@@ -132,6 +140,10 @@ def setting_id(cfg: RunConfig) -> str:
         lo_str = str(rr.pl_randmmr_lambda_low).replace(".", "")
         hi_str = str(rr.pl_randmmr_lambda_high).replace(".", "")
         rerank_str = f"pl_randmmr_a{rr.pl_alpha}_l{lo_str}to{hi_str}_s{rr.pl_samples}"
+    elif rr.method == "pl_randmmr_mmrscore":
+        lo_str = str(rr.pl_randmmr_lambda_low).replace(".", "")
+        hi_str = str(rr.pl_randmmr_lambda_high).replace(".", "")
+        rerank_str = f"pl_randmmr_mmrscore_a{rr.pl_alpha}_l{lo_str}to{hi_str}_s{rr.pl_samples}"
     elif rr.method == "pl_randmmr_fixed":
         lo_str = str(rr.pl_randmmr_lambda_low).replace(".", "")
         hi_str = str(rr.pl_randmmr_lambda_high).replace(".", "")
@@ -174,6 +186,11 @@ def list_id_for_mmr(qid: str) -> str:
 def list_id_for_pl_randmmr(qid: str, sample_idx: int) -> str:
     """Retrieval list ID for the i-th PL-then-random-lambda-MMR hybrid sample."""
     return f"{qid}__pl_randmmr_s{sample_idx:03d}"
+
+
+def list_id_for_pl_randmmr_mmrscore(qid: str, sample_idx: int) -> str:
+    """Retrieval list ID for the i-th PL-on-the-MMR-score-itself RandMMR sample."""
+    return f"{qid}__pl_randmmr_mmrscore_s{sample_idx:03d}"
 
 
 def list_id_for_pl_randmmr_fixed(qid: str, sample_idx: int) -> str:

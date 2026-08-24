@@ -33,7 +33,7 @@ sys.path.insert(0, ROOT)
 
 from perturbation import plackettluce as pl_mod
 from framework.retrieval import normalize_scores_for_pl
-from framework.config import list_id_for_pl, list_id_for_mmr, list_id_for_deterministic, list_id_for_pl_mmr, list_id_for_pl_randmmr, list_id_for_pl_randmmr_fixed, list_id_for_pl_randmmr_stochastic, list_id_for_pl_xquad
+from framework.config import list_id_for_pl, list_id_for_mmr, list_id_for_deterministic, list_id_for_pl_mmr, list_id_for_pl_randmmr, list_id_for_pl_randmmr_mmrscore, list_id_for_pl_randmmr_fixed, list_id_for_pl_randmmr_stochastic, list_id_for_pl_xquad
 from framework.metrics import profile_to_text, jaccard_similarity
 
 
@@ -403,6 +403,121 @@ def generate_pl_randmmr_lists(
             doc_ids=doc_ids,
             det_indices=selected_indices,
             method="pl_randmmr",
+            param=f"alpha={pl_alpha},lambda={sample_lambda:.4f}",
+            sample_idx=sample_idx,
+        ))
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# PL applied to the MMR score itself (order-of-operations variant of
+# generate_pl_randmmr_lists): rank 1 is identical -- pure PL(alpha) on raw
+# relevance. generate_pl_randmmr_lists then combines ranks 2..k as
+# rel^alpha * (1 - (1-lambda)*max_sim): alpha is applied to relevance BEFORE
+# the diversity discount is multiplied in, so alpha's temperature never
+# touches the discount term. This variant instead computes the literal MMR
+# score first (lambda*rel - (1-lambda)*max_sim, plain [0,1] rel, recomputed
+# fresh every rank against whatever's been selected so far), re-normalises
+# THAT combined score to [1,2] the same way normalize_scores_for_pl does for
+# a raw retrieval score, and only then raises it to alpha before Gumbel-max
+# sampling -- i.e. alpha's temperature applies to the diversity-adjusted
+# score as a whole, exactly as it would if the MMR score were itself a
+# BM25/Contriever-style relevance score fed through the ordinary PL pipeline.
+# No other change: same Jaccard similarity, same tokenization, same one-
+# lambda-per-sampled-list convention as generate_pl_randmmr_lists.
+# ---------------------------------------------------------------------------
+
+def generate_pl_randmmr_mmrscore_lists(
+    retrieval_results_for_qid: List,   # [(pid, score), ...]
+    profiles_for_qid: List[Dict],      # profile dicts, same order as retrieval_results
+    ranker: str,
+    pl_alpha: int,
+    lambda_low: float,
+    lambda_high: float,
+    pl_samples: int,
+    top_k: int,
+    seed: int,
+    qid: str,
+) -> List[RetrievalList]:
+    """
+    Rank 1 is drawn via pure Plackett-Luce (Gumbel-max on log-scores), exactly as in
+    ``generate_pl_randmmr_lists``. Ranks 2..k compute the literal MMR score
+    (``lambda * rel - (1 - lambda) * max_sim``, plain [0,1]-normalised relevance,
+    matching ``generate_mmr_list``'s own convention) fresh at every rank against
+    whatever has been selected so far, min-max normalise that combined score to
+    [1,2] (falling back to all-ones if every remaining candidate ties), raise it
+    to ``pl_alpha``, and Gumbel-max sample over the result -- the same
+    normalize-then-exponentiate pipeline ``normalize_scores_for_pl`` applies to a
+    raw retrieval score, just applied to the MMR-combined score instead. One
+    ``lambda`` is shared across the whole sampled list, same as
+    ``generate_pl_randmmr_lists``.
+    """
+    rng = np.random.default_rng(seed)
+    np.random.seed(seed)  # keep Gumbel draws below reproducible/consistent with siblings
+
+    pids = [p[0] for p in retrieval_results_for_qid]
+    raw_scores = np.array([float(p[1]) for p in retrieval_results_for_qid], dtype=np.float64)
+
+    normed = normalize_scores_for_pl(raw_scores, ranker)
+    base_scores = normed ** pl_alpha
+    log_base = np.log(np.maximum(base_scores, 1e-12))
+
+    # Plain [0, 1] relevance normalization for the MMR-score term, matching
+    # generate_mmr_list's own convention.
+    mn, mx = raw_scores.min(), raw_scores.max()
+    if mx > mn:
+        rel_scores = (raw_scores - mn) / (mx - mn)
+    else:
+        rel_scores = np.ones_like(raw_scores)
+
+    pid_to_tokens: Dict[str, frozenset] = {}
+    for pid, prof in zip(pids, profiles_for_qid):
+        pid_to_tokens[pid] = _profile_to_tokens(prof)
+
+    n_docs = len(pids)
+    cutoff = min(top_k, n_docs)
+    result: List[RetrievalList] = []
+
+    for sample_idx in range(pl_samples):
+        sample_lambda = float(rng.uniform(lambda_low, lambda_high))
+        selected_indices: List[int] = []
+        remaining = list(range(n_docs))
+
+        for rank in range(cutoff):
+            if rank == 0 or not selected_indices:
+                adj_log = log_base[np.array(remaining)]
+            else:
+                mmr_scores = np.empty(len(remaining))
+                for k_r, i in enumerate(remaining):
+                    max_sim = max(
+                        jaccard_similarity(pid_to_tokens[pids[i]], pid_to_tokens[pids[j]])
+                        for j in selected_indices
+                    )
+                    mmr_scores[k_r] = sample_lambda * rel_scores[i] - (1.0 - sample_lambda) * max_sim
+
+                mn_r, mx_r = mmr_scores.min(), mmr_scores.max()
+                if mx_r > mn_r:
+                    mmr_normed = (mmr_scores - mn_r) / (mx_r - mn_r) + 1.0
+                else:
+                    mmr_normed = np.ones_like(mmr_scores)
+                adj_log = pl_alpha * np.log(mmr_normed)
+
+            gumbel_noise = np.random.gumbel(size=len(remaining))
+            perturbed = adj_log + gumbel_noise
+            chosen_k = int(np.argmax(perturbed))
+            chosen_i = remaining[chosen_k]
+
+            selected_indices.append(chosen_i)
+            remaining.pop(chosen_k)
+
+        doc_ids = [pids[i] for i in selected_indices]
+        result.append(RetrievalList(
+            qid=qid,
+            list_id=list_id_for_pl_randmmr_mmrscore(qid, sample_idx),
+            doc_ids=doc_ids,
+            det_indices=selected_indices,
+            method="pl_randmmr_mmrscore",
             param=f"alpha={pl_alpha},lambda={sample_lambda:.4f}",
             sample_idx=sample_idx,
         ))

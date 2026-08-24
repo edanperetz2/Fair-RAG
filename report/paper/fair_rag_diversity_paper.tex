@@ -368,24 +368,25 @@ three choices applied on top of the top-$k$ candidates:
 
 \begin{enumerate}[leftmargin=1.4em,itemsep=2pt]
   \item \textbf{Pick parameters}: the PL temperature $\alpha$, how many of the
-  top-$k$ ranks to randomize (just rank 1, or all $k$ of them), and the
-  diversity weight $\lambda$ (one fixed value, or a range to redraw from).
+  top-$k$ ranks to randomize (just rank 1, or all $k$ of them), and the range
+  $[\lambda_{\text{low}}, \lambda_{\text{high}}]$ that ranks $2..k$ draw their
+  diversity weight from.
   \item \textbf{Rank 1} is drawn via PL($\alpha$) in every variant: one
-  Gumbel-max sample proportional to relevance$^\alpha$ over all candidates.
-  \item \textbf{Ranks $2..k$} then go one of two ways: either \emph{apply MMR}
-  --- pick every later rank deterministically by MMR score
-  ($\lambda\cdot\text{rel} - (1-\lambda)\cdot\text{max-sim-to-selected}$), with
-  $\lambda$ fixed for the whole list or redrawn fresh each rank --- or
-  \emph{apply a PL-weighted diversity discount} --- resample every later rank
-  with a fresh Gumbel-max draw proportional to $\text{rel}^\alpha\cdot(1 -
-  (1-\lambda)\cdot\text{max-sim-to-selected})$, i.e.\ the same $\alpha$-shaped
-  PL score used for rank 1, multiplicatively discounted by similarity to what's
-  already been picked, with one $\lambda$ shared across the whole sampled list.
+  Gumbel-max sample proportional to relevance$^\alpha$ over the initial ranking.
+  \item \textbf{Ranks $2..k$}: at each rank $i$ being randomized, draw a fresh
+  $\lambda \sim \mathrm{Unif}(\lambda_{\text{low}}, \lambda_{\text{high}})$ and
+  compute the MMR score ($\lambda\cdot\text{rel} -
+  (1-\lambda)\cdot\text{max-sim-to-selected}$) for every candidate not already
+  placed at ranks $1..i{-}1$; then pick the next document either
+  \emph{deterministically} --- the candidate with the highest MMR score --- or
+  \emph{stochastically} --- a further PL($\alpha$)-style Gumbel-max draw over
+  those MMR scores.
 \end{enumerate}
 
-The only setting we ran with a full utility comparison uses the second option:
-all $k$ ranks randomized (PL-weighted diversity discount), $\alpha{=}4$,
-$\lambda\sim\mathrm{Unif}(0.8,1.0)$ drawn once per sampled list. We evaluate it
+The only setting we ran with a full utility comparison randomizes all $k$
+ranks via the stochastic choice, $\alpha{=}4$, $\lambda\sim\mathrm{Unif}(0.8,1.0)$
+--- the one deviation from the template above: $\lambda$ is drawn once per
+sampled list rather than redrawn fresh at every rank. We evaluate it
 against plain PL for every one of the 28 (task, generator, ranker) cells, with
 EE-D computed at $N{=}100$ samples/query and EU at $N{=}10$
 (Section~\ref{sec:method}). Each cell is matched to whichever PL

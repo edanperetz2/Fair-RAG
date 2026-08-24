@@ -57,6 +57,7 @@ from framework.reranking import (
     generate_pl_lists,
     generate_pl_mmr_lists,
     generate_pl_randmmr_lists,
+    generate_pl_randmmr_mmrscore_lists,
     generate_pl_randmmr_fixed_lists,
     generate_pl_randmmr_stochastic_lists,
     generate_pl_xquad_lists,
@@ -464,6 +465,22 @@ class ExperimentRunner:
             pids_in_order = [p[0] for p in ret_for_qid]
             profiles_in_order = dataset.find_profiles_by_pids(qid, pids_in_order)
             return generate_pl_randmmr_lists(
+                retrieval_results_for_qid=ret_for_qid,
+                profiles_for_qid=profiles_in_order,
+                ranker=cfg.retrieval.ranker,
+                pl_alpha=rr.pl_alpha,
+                lambda_low=rr.pl_randmmr_lambda_low,
+                lambda_high=rr.pl_randmmr_lambda_high,
+                pl_samples=rr.pl_samples,
+                top_k=cfg.retrieval.top_k,
+                seed=rr.seed,
+                qid=qid,
+            )
+
+        if rr.method == "pl_randmmr_mmrscore":
+            pids_in_order = [p[0] for p in ret_for_qid]
+            profiles_in_order = dataset.find_profiles_by_pids(qid, pids_in_order)
+            return generate_pl_randmmr_mmrscore_lists(
                 retrieval_results_for_qid=ret_for_qid,
                 profiles_for_qid=profiles_in_order,
                 ranker=cfg.retrieval.ranker,
