@@ -170,6 +170,19 @@ truncated to $k=5$, matching \cite{eunkim2025fairrag}'s reported $k$.
 \subsection{Limitations of the LaMP Ground Truth}
 \label{sec:threats}
 
+These reasons for choosing LaMP come with limitations worth stating up front, shared
+with the source paper, that bound how far our results (Section~\ref{sec:results})
+should generalize.
+
+\textbf{Relevance is a per-generator utility delta, not a fixed judgment.} Unlike
+TREC-style collections, a LaMP document is labeled relevant iff including it
+improves \emph{that specific generator's} task score
+($\delta{=}\text{augment\_score}{-}\text{baseline\_score}$, label${=}1$ iff
+$\delta{>}0$). Ground truth is generator-specific: on the 21 LaMP-1 queries shared
+by both generators, 22.8\% of labels flip between them (useful-rate 9.4\% vs.\
+20.2\%) --- results here reflect one model's learned usefulness, not
+model-agnostic truth.
+
 \begin{table*}[t]
 \centering
 \scriptsize
@@ -186,19 +199,6 @@ Flan-T5-Base  & 102.9 & 22.5 & 45.6 & 29.9 & 185.3 & 41.2 & 187.0 & 31.6 & 105.6
 \end{tabular}
 \end{table*}
 \FloatBarrier
-
-These reasons for choosing LaMP come with limitations worth stating up front, shared
-with the source paper, that bound how far our results (Section~\ref{sec:results})
-should generalize.
-
-\textbf{Relevance is a per-generator utility delta, not a fixed judgment.} Unlike
-TREC-style collections, a LaMP document is labeled relevant iff including it
-improves \emph{that specific generator's} task score
-($\delta{=}\text{augment\_score}{-}\text{baseline\_score}$, label${=}1$ iff
-$\delta{>}0$). Ground truth is generator-specific: on the 21 LaMP-1 queries shared
-by both generators, 22.8\% of labels flip between them (useful-rate 9.4\% vs.\
-20.2\%) --- results here reflect one model's learned usefulness, not
-model-agnostic truth.
 
 \textbf{The corpus is small, with an unusually high useful-document rate.} Table
 \ref{tab:corpus} gives per-task, per-generator candidate-pool sizes (19--192
