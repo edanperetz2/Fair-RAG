@@ -135,20 +135,13 @@ alongside PL. Intra-list diversity via pairwise dissimilarity follows
 \label{sec:data}
 
 We use LaMP \cite{salemi2023lamp}, the same benchmark as \cite{eunkim2025fairrag},
-for two reasons. First, and primarily, paper-faithfulness: LaMP is the only dataset
-for which the original paper published per-task, per-generator utility-labeled
-corpora (filtered to items with a measurable generator-specific utility delta), so
-reproducing on it is the only way to compare our numbers directly against theirs
-rather than against a different task distribution. Second, tractability: LaMP's
-candidate pools are small enough that deriving actual relevance labels is
-computationally feasible in the first place (Section~\ref{sec:threats}), which gives
-us, for the same queries, both a retrieval-fairness signal (which documents are
-labeled useful) and a generation-correctness signal --- a joint
-retrieval-\emph{and}-generation labeling that,
-to our knowledge, is not available together in other RAG-evaluation datasets, and is
-exactly what studying fairness in RAG needs. LaMP additionally spans seven
-personalization tasks with heterogeneous metrics (accuracy, MAE, ROUGE-L), letting us
-check whether any finding is task-specific or general.
+for two reasons. First, paper-faithfulness: reproducing on the same benchmark as the
+original paper lets us compare our numbers directly against theirs, rather than
+against a different task distribution. Second, LaMP is verified to work with small
+LLMs, and since fairness evaluation needs heavy stochastic sampling, a cheaply
+sampled benchmark is essential; its seven personalization tasks span heterogeneous
+metrics (accuracy, MAE, ROUGE-L), letting us test whether fairness interventions
+behave differently across problem types.
 
 We verified our local corpus against the original paper's own published statistics
 (Appendix D, Tables 4--5): per-task query count, average candidate-document count,
@@ -167,9 +160,10 @@ truncated to $k=5$, matching \cite{eunkim2025fairrag}'s reported $k$.
 \subsection{Limitations of the LaMP Ground Truth}
 \label{sec:threats}
 
-These reasons for choosing LaMP come with limitations worth stating up front, shared
-with the source paper, that bound how far our results (Section~\ref{sec:results})
-should generalize.
+These limitations, shared with the source paper, do more than bound how far our
+results (Section~\ref{sec:results}) should generalize --- the first two are a
+plausible lens for why the fairness-utility trade-off fails to appear in either
+paper.
 
 \textbf{Relevance is a per-generator utility delta, not a fixed judgment.} Unlike
 TREC-style collections, a LaMP document is labeled relevant iff including it
@@ -177,48 +171,33 @@ improves \emph{that specific generator's} task score
 ($\delta{=}\text{augment\_score}{-}\text{baseline\_score}$, label${=}1$ iff
 $\delta{>}0$). Ground truth is generator-specific: on the 21 LaMP-1 queries shared
 by both generators, 22.8\% of labels flip between them (useful-rate 9.4\% vs.\
-20.2\%) --- results here reflect one model's learned usefulness, not
-model-agnostic truth.
+20.2\%) --- the definition is logically sound, but noisy in practice in this
+setting.
 
-\begin{table*}[t]
-\centering
-\scriptsize
-\caption{LaMP candidate-pool size and useful- (i.e.\ relevant-) document rate, per task and generator (from each task's relevance-mapping file).}
-\label{tab:corpus}
-\begin{tabular}{@{}lrrrrrrrrrrrrrr@{}}
-\toprule
-& \multicolumn{2}{c}{LaMP-1} & \multicolumn{2}{c}{LaMP-2} & \multicolumn{2}{c}{LaMP-3} & \multicolumn{2}{c}{LaMP-4} & \multicolumn{2}{c}{LaMP-5} & \multicolumn{2}{c}{LaMP-6} & \multicolumn{2}{c}{LaMP-7} \\
-Generator & cand. & \%use & cand. & \%use & cand. & \%use & cand. & \%use & cand. & \%use & cand. & \%use & cand. & \%use \\
-\midrule
-Flan-T5-Small & 123.5 & 9.5 & 52.8 & 22.5 & 189.8 & 34.3 & 192.2 & 27.1 & 106.1 & 24.8 & 86.0 & 35.9 & 19.4 & 45.5 \\
-Flan-T5-Base  & 102.9 & 22.5 & 45.6 & 29.9 & 185.3 & 41.2 & 187.0 & 31.6 & 105.6 & 25.7 & 86.2 & 38.6 & 21.7 & 33.0 \\
-\bottomrule
-\end{tabular}
-\end{table*}
-\FloatBarrier
-
-\textbf{The corpus is small, with an unusually high useful-document rate.} Table
-\ref{tab:corpus} gives per-task, per-generator candidate-pool sizes (19--192
-docs/query, mean $\sim$110) and useful-document rates (9.5\%--45.5\%, mean
-$\sim$29\%) --- far denser than classical TREC collections' sub-1\% relevance
-rates. At $k{=}5$ and a $\sim$30\% useful rate, even an aggressive rerank has
-decent odds of retaining several useful documents, narrowing the
-deterministic-vs-stochastic gap the whole trade-off is measured against.
+\textbf{The corpus is small, with an unusually high useful-document rate.}
+Per-task, per-generator candidate-pool sizes (19--192 docs/query, mean $\sim$110)
+and useful-document rates --- the fraction of each candidate pool that counts as
+relevant, i.e.\ the LaMP equivalent of a corpus's \% relevant-document rate, under
+the per-generator definition above (9.5\%--45.5\%, mean $\sim$29\%; full
+per-task/per-generator breakdown in Table~\ref{tab:corpus},
+Appendix~\ref{app:corpus}) --- are far denser than classical TREC collections'
+sub-1\% relevance rates. At $k{=}5$ and a $\sim$30\% useful rate, even an
+aggressive rerank has decent odds of retaining several useful documents, narrowing
+the deterministic-vs-stochastic gap the whole trade-off is measured against.
 
 \textbf{Our own generators are small; the source paper's are dated.} Flan-T5-Small
-(77M) and Flan-T5-Base (250M) are one to two orders of magnitude smaller than
-production RAG generators ($\geq$3B). The source paper's largest, Flan-UL2
-($\sim$20B), is not undersized but is old --- the same 2022-era family, several
-generations behind current deployments. Whether either paper's findings persist at
-production scale is untested by both (see Future Work).
+(77M) and Flan-T5-Base (250M) are one to two orders of magnitude below production
+RAG generators ($\geq$3B); the source paper's largest, Flan-UL2 ($\sim$20B), is
+sized but from the same 2022-era family. Whether either persists at production
+scale is untested (see Future Work).
 
-\textbf{ROUGE-L is an imperfect stand-in for generation quality.} For the four
-generation tasks (LaMP-4--7), both our utility labels and EU score correctness via
+\textbf{ROUGE-L is an imperfect stand-in for generation quality.} Both our utility
+labels and EU, for the four generation tasks (LaMP-4--7), score correctness via
 ROUGE-L, an $n$-gram-overlap metric that can score a valid paraphrase lower than a
-wrong but lexically similar answer --- errors propagate into ground truth itself,
-not just our reported EU. A more faithful LLM-as-judge metric was out of reach at
-this project's scale; ROUGE-L is the standard LaMP metric \cite{salemi2023lamp},
-not a choice specific to either paper.
+wrong but lexically similar answer, propagating errors into ground truth itself. A
+more faithful LLM-as-judge metric was out of reach at this project's scale;
+ROUGE-L is LaMP's standard metric \cite{salemi2023lamp}, not a choice specific to
+either paper.
 
 \begin{figure}[t]
 \centering
@@ -349,7 +328,10 @@ cell. Bars sorted; label = LaMP task.}
 Taken together, we could not verify the diversity-mediation hypothesis as
 originally framed: neither method's utility rises with realized diversity, whether
 pooled broadly (Figure~\ref{fig:trend}) or compared at specific matched points
-(above). What the data does support is narrower: MMR's
+(above). A system's capacity to diversify varied widely by task (LaMP-6 vs.\ LaMP-2
+above), but the outcome was general: across these heterogeneous tasks, increased
+diversity did not reliably predict a gain in utility. What the data does support is
+narrower: MMR's
 relevance-proportional-plus-diversity selection retains utility that PL's
 relevance-proportional-only sampling does not (Figure~\ref{fig:paired}) --- a
 real, if not airtight, difference between the two methods, not evidence that
@@ -586,6 +568,28 @@ R.\ D.\ Luce.
 
 \clearpage
 \appendix
+\section{LaMP Corpus Statistics}
+\label{app:corpus}
+
+Table~\ref{tab:corpus} gives the per-task, per-generator candidate-pool sizes and
+useful-document rates summarized in Section~\ref{sec:threats}.
+
+\begin{table*}[t]
+\centering
+\scriptsize
+\caption{LaMP candidate-pool size and useful- (i.e.\ relevant-) document rate, per task and generator (from each task's relevance-mapping file).}
+\label{tab:corpus}
+\begin{tabular}{@{}lrrrrrrrrrrrrrr@{}}
+\toprule
+& \multicolumn{2}{c}{LaMP-1} & \multicolumn{2}{c}{LaMP-2} & \multicolumn{2}{c}{LaMP-3} & \multicolumn{2}{c}{LaMP-4} & \multicolumn{2}{c}{LaMP-5} & \multicolumn{2}{c}{LaMP-6} & \multicolumn{2}{c}{LaMP-7} \\
+Generator & cand. & \%use & cand. & \%use & cand. & \%use & cand. & \%use & cand. & \%use & cand. & \%use & cand. & \%use \\
+\midrule
+Flan-T5-Small & 123.5 & 9.5 & 52.8 & 22.5 & 189.8 & 34.3 & 192.2 & 27.1 & 106.1 & 24.8 & 86.0 & 35.9 & 19.4 & 45.5 \\
+Flan-T5-Base  & 102.9 & 22.5 & 45.6 & 29.9 & 185.3 & 41.2 & 187.0 & 31.6 & 105.6 & 25.7 & 86.2 & 38.6 & 21.7 & 33.0 \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
 \section{Deterministic-Baseline EU Detail}
 \label{app:baseline}
 
