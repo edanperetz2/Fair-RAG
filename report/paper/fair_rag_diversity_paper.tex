@@ -124,8 +124,8 @@ oracle-ranking upper bound before being averaged across $N$ sampled rankings.
 \textbf{Diversity in retrieval.} Maximal Marginal Relevance (MMR)
 \cite{carbonell1998use} is the classic deterministic diversity-relevance trade-off
 re-ranker: from the not-yet-selected candidates, it greedily picks the document $d$
-maximizing $\lambda \cdot \mathrm{rel}(d, q) - (1-\lambda) \max_{d' \in S}
-\mathrm{sim}(d, d')$, where $\mathrm{rel}(d,q)$ is $d$'s relevance score for query
+maximizing $\lambda \cdot \mathrm{score}(d, q) - (1-\lambda) \max_{d' \in S}
+\mathrm{sim}(d, d')$, where $\mathrm{score}(d,q)$ is $d$'s retrieval score for query
 $q$, $S$ is the set of already-selected documents, and $\mathrm{sim}$ is a pairwise
 similarity function; we use it as a second, non-stochastic diversification arm
 alongside PL. Intra-list diversity via pairwise dissimilarity follows
@@ -369,10 +369,11 @@ three choices applied on top of the top-$k$ candidates:
   $[\lambda_{\text{low}}, \lambda_{\text{high}}]$ that ranks $2..k$ draw their
   diversity weight from.
   \item \textbf{Rank 1} is drawn via PL($\alpha$) in every variant: one
-  Gumbel-max sample proportional to relevance$^\alpha$ over the initial ranking.
+  Gumbel-max sample proportional to $\mathrm{score}(d,q)^\alpha$ over the initial
+  ranking.
   \item \textbf{Ranks $2..k$}: at each rank $i$ being randomized, draw a fresh
   $\lambda \sim \mathrm{Unif}(\lambda_{\text{low}}, \lambda_{\text{high}})$ and
-  compute the MMR score $\lambda\cdot\mathrm{rel}(d,q) - (1-\lambda)
+  compute the MMR score $\lambda\cdot\mathrm{score}(d,q) - (1-\lambda)
   \max_{d'\in S}\mathrm{sim}(d,d')$ for every candidate $d$ not already placed
   at ranks $1..i{-}1$ (with $S$ the documents already selected at those ranks);
   then pick the next document either \emph{deterministically} --- the candidate
