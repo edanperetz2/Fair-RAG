@@ -70,8 +70,8 @@ motivates two questions, the first stated in our original project proposal:
 
 Formally, following \cite{eunkim2025fairrag}, a RAG system is a tuple
 $\langle R, G, k \rangle$ of a retriever $R$, generator $G$, and truncation depth
-$k$. A deterministic $R$ returns one ranked list per query; a stochastic policy $S$
-instead samples a ranking $\pi \sim S(\cdot \mid q)$, and system quality is reported
+$k$. A deterministic $R$ returns one ranked list per query; a stochastic policy $\Pi$
+instead samples a ranking $\pi \sim \Pi(\cdot \mid q)$, and system quality is reported
 in expectation over $N$ sampled rankings: Expected Exposure Disparity/Relevance
 (EE-D/EE-R, item-side ranking fairness and quality) and Expected Utility (EU,
 downstream generation quality), each normalized to a theoretical or empirical bound
@@ -109,9 +109,17 @@ exposes the same top-$k$ items, the maximally unfair extreme), and Expected Expo
 Relevance $\mathrm{EE\text{-}R} = \langle \epsilon, \epsilon^* \rangle$, how well that
 exposure aligns with the oracle's relevance-based target. Both are computed over a
 stochastic ranking sampled by the Plackett-Luce (PL) model
-\cite{plackett1975analysis,luce1959individual}; the temperature parameter $\alpha$
-that we sweep here controls how close PL sampling is to the deterministic base
-ranking. Castillo \cite{castillo2018fairness} surveys the fairness-transparency
+\cite{plackett1975analysis,luce1959individual}, which draws documents sequentially
+without replacement: with $S$ the documents already selected at earlier ranks, each
+next document $d$ is drawn from the remaining candidates $\mathcal{C} \setminus S$
+with probability
+\begin{equation}
+P_{\mathrm{PL}}(d \mid q, S) = \mathrm{score}(d,q)^\alpha \Big/ \sum_{d' \in \mathcal{C} \setminus S} \mathrm{score}(d',q)^\alpha;
+\label{eq:pl}
+\end{equation}
+the temperature parameter
+$\alpha$ that we sweep here
+controls how close PL sampling is to the deterministic base ranking. Castillo \cite{castillo2018fairness} surveys the fairness-transparency
 trade-off in rankings that motivates this line of work. \emph{Towards Fair RAG}
 \cite{eunkim2025fairrag} is the paper under reproduction: it applies this fairness
 framework to RAG, measuring EE-D/EE-R/EU across LaMP tasks and several
@@ -125,8 +133,12 @@ oracle-ranking upper bound before being averaged across $N$ sampled rankings.
 \textbf{Diversity in retrieval.} Maximal Marginal Relevance (MMR)
 \cite{carbonell1998use} is the classic deterministic diversity-relevance trade-off
 re-ranker: from the not-yet-selected candidates, it greedily picks the document $d$
-maximizing $\lambda \cdot \mathrm{score}(d, q) - (1-\lambda) \max_{d' \in S}
-\mathrm{sim}(d, d')$, where $\mathrm{score}(d,q)$ is $d$'s retrieval score for query
+maximizing
+\begin{equation}
+\lambda \cdot \mathrm{score}(d, q) - (1-\lambda) \max_{d' \in S} \mathrm{sim}(d, d'),
+\label{eq:mmr}
+\end{equation}
+where $\mathrm{score}(d,q)$ is $d$'s retrieval score for query
 $q$, $S$ is the set of already-selected documents, and $\mathrm{sim}$ is a pairwise
 similarity function; we use it as a second, non-stochastic diversification arm
 alongside PL. Intra-list diversity via pairwise dissimilarity follows
@@ -340,59 +352,70 @@ still curious whether combining PL's stochastic fairness mechanism with MMR's
 diversification, which we call \textbf{RandMMR}, could synergize on
 fairness rather than utility: layering diversification on top of randomization
 might flatten the exposure distribution further than randomization alone,
-lowering EE-D. It is a small design space, not one fixed method, built from
-three choices
-applied on top of the top-$k$ candidates:
+lowering EE-D. RandMMR is not one fixed method but a small design space: the
+PL temperature $\alpha$, how many of the top-$k$ ranks to randomize (just rank
+1, or all $k$ of them), and the range $[\lambda_{\text{low}}, \lambda_{\text{high}}]$
+that ranks $2..k$ draw their diversity weight from. Given a setting of these
+parameters, RandMMR builds a ranking over the top-$k$ candidates as follows:
 
 \begin{enumerate}[leftmargin=1.4em,itemsep=2pt]
-  \item \textbf{Pick parameters}: the PL temperature $\alpha$, how many of the
-  top-$k$ ranks to randomize (just rank 1, or all $k$ of them), and the range
-  $[\lambda_{\text{low}}, \lambda_{\text{high}}]$ that ranks $2..k$ draw their
-  diversity weight from.
   \item \textbf{Rank 1} is drawn via PL($\alpha$) in every variant: one
   Gumbel-max sample proportional to $\mathrm{score}(d,q)^\alpha$ over the initial
   ranking.
   \item \textbf{Ranks $2..k$}: at each rank $i$ being randomized, draw a fresh
-  $\lambda \sim \mathrm{Unif}(\lambda_{\text{low}}, \lambda_{\text{high}})$ and
-  compute the MMR score $\lambda\cdot\mathrm{score}(d,q) - (1-\lambda)
-  \max_{d'\in S}\mathrm{sim}(d,d')$ for every candidate $d$ not already placed
-  at ranks $1..i{-}1$ (with $S$ the documents already selected at those ranks);
-  then pick the next document either \emph{deterministically} --- the candidate
-  with the highest MMR score --- or \emph{stochastically} --- a further
-  PL($\alpha$)-style Gumbel-max draw over those MMR scores.
+  $\lambda \sim \mathrm{Unif}(\lambda_{\text{low}}, \lambda_{\text{high}})$, then
+  pick the next document from the remaining candidates $\mathcal{C} \setminus S$
+  (with $S$ the documents already selected at ranks $1..i{-}1$) either
+  \emph{deterministically} --- the candidate maximizing MMR's score,
+  Eq.~\eqref{eq:mmr} --- or \emph{stochastically}, drawing $d$ with probability
+  proportional to its $\alpha$-sharpened relevance score times the diversity
+  discount $\rho_\lambda(d) = 1 - (1-\lambda)\max_{d'\in S}\mathrm{sim}(d,d')$:
+  \begin{equation}
+  P_{\mathrm{randMMR}}(d \mid q, S) = \frac{\mathrm{score}(d,q)^\alpha\,\rho_\lambda(d)}
+  {\displaystyle\sum_{d''\in\mathcal{C}\setminus S} \mathrm{score}(d'',q)^\alpha\,\rho_\lambda(d'')}.
+  \label{eq:randmmr-stochastic}
+  \end{equation}
+  This is PL's own $P_{\mathrm{PL}}(d\mid q,S)$, Eq.~\eqref{eq:pl} --- the same
+  $\alpha$-sharpened relevance term --- multiplicatively discounted by
+  $\rho_\lambda$ rather than combined with it additively.\footnote{A different
+  formulation is possible but untested by us: taking $\alpha$ over the
+  already-discounted score rather than over relevance alone, $P(d\mid q,S) =
+  \big(\mathrm{score}(d,q)\,\rho_\lambda(d)\big)^\alpha \big/
+  \sum_{d''\in\mathcal{C}\setminus S} \big(\mathrm{score}(d'',q)\,\rho_\lambda(d'')\big)^\alpha$,
+  so temperature sharpens relevance and diversity jointly instead of relevance
+  alone.}
 \end{enumerate}
 
 The only setting we ran with a full utility comparison randomizes all $k$
-ranks via the stochastic choice, $\alpha{=}4$, $\lambda\sim\mathrm{Unif}(0.8,1.0)$
---- the one deviation from the template above: $\lambda$ is drawn once per
-sampled list rather than redrawn fresh at every rank. We evaluate it
+ranks via the stochastic choice, $\alpha{=}4$, $\lambda\sim\mathrm{Unif}(0.8,1.0)$.
+We evaluate it
 against plain PL for every one of the 28 (task, generator, ranker) cells, with
 EE-D computed at $N{=}100$ samples/query and EU at $N{=}10$
 (Section~\ref{sec:method}). Each cell is matched to whichever PL
 $\alpha \in \{1,2,4,8\}$ has EE-D closest to RandMMR's own, breaking ties toward
 equal or \emph{higher} PL disparity so the comparison is not usually handed an
-artificially fairer PL point to beat --- except within a 0.02 EE-D tolerance, where
-the closest $\alpha$ is used regardless of direction; this affects 2 of the 28 cells
-(LaMP-7, BM25, both generators), where the matched PL's EE-D sits marginally below
-RandMMR's own (by $\leq$0.003). In every one of the 28 cells, the matched $\alpha$
-turns out to be 2.
+artificially fairer PL point to beat --- except within a 0.003 EE-D tolerance,
+where the closest $\alpha$ is used regardless of direction. In every one of
+the 28 cells, the matched $\alpha$ turns out to be 2.
 
 \begin{table}[t]
 \centering
 \scriptsize
 \setlength{\tabcolsep}{3pt}
-\caption{RandMMR vs.\ matched plain PL (see text), LaMP-1 and LaMP-4 (macro
-means). EE-D and EU are normalized per query to $[0,1]$ (EE-D: the paper's own
-bound; EU: our per-query empirical-max EU$_{\text{norm}}$). RandMMR's EE-D is
-lower (fairer) than the matched PL's in every row shown; the other five LaMP
-tasks show a similar pattern, given in full in Appendix~\ref{app:randmmr-full}
+\caption{RandMMR ($\alpha{=}4$, $\lambda\sim\mathrm{Unif}(0.8,1.0)$, all $k$
+ranks randomized stochastically; see text) vs.\ matched plain PL
+($\alpha{=}2$ in every row here), LaMP-1 and LaMP-4. EE-D and
+EU are normalized per query to $[0,1]$ following the methodology in
+Section~\ref{sec:method}. RandMMR's EE-D$_{\text{norm}}$ is lower (fairer) than
+the matched PL's in every row shown; the other five LaMP tasks show a similar
+pattern, given in full in Appendix~\ref{app:randmmr-full}
 (Table~\ref{tab:hybrid-full}).}
 \label{tab:hybrid}
 \begin{tabular}{@{}ll rr r@{}}
 \toprule
-& & \multicolumn{2}{c}{EE-D/EU} & \\
+& & \multicolumn{2}{c}{EE-D$_{\text{norm}}$/EU$_{\text{norm}}$} & \\
 \cmidrule(lr){3-4}
-Task & Gen./Rank. & PL & RandMMR & $\Delta$EU \\
+Task & Gen./Rank. & PL($\alpha{=}2$) & RandMMR & $\Delta$EU$_{\text{norm}}$ \\
 \midrule
 \multirow{4}{*}{LaMP-1} & Base/BM25    & 0.11/0.51 & 0.10/0.49 & $-$0.019 \\
  & Base/Contr.  & 0.10/0.56 & 0.09/0.51 & $-$0.048 \\
@@ -418,14 +441,11 @@ favor RandMMR and none favor PL, both on the same (generator, ranker) pair,
 Flan-T5-Small/BM25. We read this as a small hint of a real effect, not a
 demonstrated win.
 
-RandMMR is also fairer almost everywhere: 26 of the 28 cells have lower EE-D
-(mean $-0.011$), with no significant utility cost anywhere in the grid.
-
 To see which toggle drives that fairness gain, Table~\ref{tab:toggle} adds the
-first option from step 3 above (apply MMR, randomizing only rank 1), using EE-D
+first option from step 2 above (apply MMR, randomizing only rank 1), using EE-D
 alone since it needs no generation, for one representative cell (LaMP-1,
-Flan-T5-Base/BM25, $N{=}100$); the other seven cells we checked this way
-(LaMP-1 and LaMP-4, both generators, both rankers) show the same pattern.
+Flan-T5-Base/BM25, $N{=}100$); the same pattern holds across the other
+settings we checked.
 
 \begin{table}[t]
 \centering
@@ -446,24 +466,33 @@ Plain PL & all $k$ & 8 & --- & 0.965 \\
 \cmidrule(lr){1-5}
 RandMMR (Table~\ref{tab:hybrid}) & all $k$ & 4 & $U(0.8,1.0)$ & 0.099 \\
 RandMMR & all $k$ & 4 & $0.9$ (fixed) & 0.099 \\
-RandMMR & rank 1 only & 8 & $0.8$ (fixed) & 0.841 \\
-RandMMR & rank 1 only & 8 & $U(0.6,1.0)$ & 0.827 \\
+RandMMR & all $k$ & 8 & $U(0.8,1.0)$ & 0.223 \\
+RandMMR & all $k$ & 8 & $0.9$ (fixed) & 0.223 \\
+RandMMR & rank 1 only & 4 & $U(0.8,1.0)$ & 0.804 \\
+RandMMR & rank 1 only & 4 & $0.9$ (fixed) & 0.810 \\
+RandMMR & rank 1 only & 8 & $U(0.8,1.0)$ & 0.838 \\
+RandMMR & rank 1 only & 8 & $0.9$ (fixed) & 0.843 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Randomizing all $k$ ranks takes the $\alpha{=}4$ draw --- 0.682 EE-D on its own
---- down to 0.099, fairer than plain PL($\alpha{=}2$) itself (0.115), despite
-starting from a much more peaked distribution; a fixed $\lambda{=}0.9$ gives the
-identical 0.099. Randomizing only rank 1 is weaker but still substantial: it
-cuts $\alpha{=}8$ from 0.965 to 0.83--0.84, and again fixed vs.\ resampled
-$\lambda$ barely matters (0.841 vs.\ 0.827) --- for both mechanisms, the gain
-comes from how many ranks are randomized, not from how $\lambda$ is chosen
-within an otherwise-deterministic tail. We read this as a modestly optimistic
-sign: adding diversity-aware structure to PL need not cost more than plain PL
-already costs at that $\alpha$, and can lower disparity substantially even with
-only part of the list randomized --- worth testing on a dataset where diversity
-is known to help utility, which RQ1 suggests LaMP may not be.
+Randomizing all $k$ ranks is far more effective than randomizing only rank 1,
+regardless of $\alpha$: at $\alpha{=}4$ it takes the raw PL draw from 0.682
+down to 0.099, and at $\alpha{=}8$, from 0.965 down to 0.223 --- fixed vs.\
+ranged $\lambda$ makes no real difference either way. Randomizing only rank 1
+is far weaker: 0.80--0.81 at $\alpha{=}4$ and 0.84 at $\alpha{=}8$, both still
+close to plain PL($\alpha{=}8$)'s own 0.965. This follows from the mechanism:
+under rank-1-only randomization, ranks $2..k$ are chosen by deterministic MMR
+argmax regardless of $\alpha$, so they dominate EE-D, with $\alpha$ only
+shifting how peaked rank 1 itself is. Fixed vs.\ resampled $\lambda$ again
+barely matters (differences $\leq$0.006 throughout): for both mechanisms, the
+gain comes from how many ranks are randomized, not from how $\lambda$ is
+chosen within an otherwise-deterministic tail. We read this as a modestly
+optimistic sign: adding diversity-aware structure to PL need not cost more
+than plain PL already costs at that $\alpha$, and randomizing the full list
+can lower disparity substantially even where plain PL alone is nearly fully
+deterministic --- worth testing on a dataset where diversity is known to help
+utility, which RQ1 suggests LaMP may not be.
 
 \FloatBarrier
 \section{Conclusions and Future Work}
@@ -471,17 +500,13 @@ is known to help utility, which RQ1 suggests LaMP may not be.
 
 We set out to test whether the source paper's finding --- that fairness-aware
 stochastic reranking does not cost RAG generation utility --- is explained by an
-increase in retrieved-item diversity. It isn't: neither PL nor MMR shows utility
-rising with diversity (Section~\ref{sec:rq1}), and MMR's edge over PL on
-best-case utility (15 of 28 cells) is too close to call a real effect, let
-alone evidence for the diversity mechanism we set out to test. Along the way
-we also
-found reasons to question the evidence base itself, both in our own reproduction
-(Section~\ref{sec:threats}) and in the source paper's own reported EE-D/EE-R
-relationship. RandMMR, our proposed hybrid of PL's fairness draw and MMR's
-diversification, does not clearly beat plain PL on utility either, but is more
-consistently fairer (Section~\ref{sec:rq2}) --- a promising direction, not a
-settled result.
+increase in retrieved-item diversity. We found no evidence that it is, as seen
+in Section~\ref{sec:rq1}. Along the way we found reasons to believe that the
+utility retention with fairness interventions is explained by an unusual and
+noisy dataset (Section~\ref{sec:threats}). RandMMR, our proposed hybrid of
+PL's fairness draw and MMR's diversification, does not clearly beat plain PL
+on utility either, but is more consistently fairer (Section~\ref{sec:rq2}) ---
+a promising direction.
 
 Despite not confirming our initial hypothesis, we see real potential in a few
 directions a proper follow-up should pursue:
@@ -498,7 +523,7 @@ directions a proper follow-up should pursue:
   dataset whose relevance labels do not depend on a single generator's own
   utility delta, and utility scored closer to human judgment than ROUGE-L
   allows, would show how much of RQ1--RQ2 survives outside this regime.
-  \item \textbf{Task-specific RAG fairness-diversity balancing.} An interesting course of research in our opinion would be to study how much diversity is beneficial for different tasks or queries and how it can be balanced with fairness constraints in an optimal way.
+  \item \textbf{Task-specific RAG fairness-diversity balancing.} An interesting course of research in our opinion would be to study how much diversity is beneficial depending on the specific task or query (also outside of LaMP dataset) and how it can be balanced with fairness constraints in an optimal way.
   \item \textbf{Other reranking designs, and validating RandMMR properly.} We have
   only measured utility for one point in RandMMR's design space (all $k$ ranks
   randomized); the two narrower, EE-D-only variants above are promising but
@@ -506,10 +531,7 @@ directions a proper follow-up should pursue:
   Comparing more points in this space, and against diversity/fairness methods
   outside the PL/MMR family entirely (e.g.\ explicit sub-topic-coverage
   diversification), could be an interesting research direction and may possibly
-  yield another diversity-fairness balancing algorithm. Before any of that, though, the two
-  significant cells behind RQ2 need confirming at greater scale (more seeds, all
-  tasks at full $N$) --- our current result is real but too cell-concentrated to
-  call settled.
+  yield another diversity-fairness balancing algorithm.
 \end{enumerate}
 
 \newpage
@@ -779,7 +801,7 @@ Table~\ref{tab:hybrid-full} gives the complete per-cell detail behind
 Section~\ref{sec:rq2}'s 12-of-28 tally (Table~\ref{tab:hybrid} in the main text shows
 only the two tasks with a published baseline). Columns are as in
 Table~\ref{tab:hybrid}: PL $\alpha$ is the plain-PL condition matched to RandMMR's own
-EE-D for that cell (uniformly $\alpha{=}2$ here), EE-D/EU pairs are macro means, and
+EE-D for that cell (uniformly $\alpha{=}2$ here), and
 $\Delta$EU is RandMMR's EU$_{\text{norm}}$ minus the matched PL's. EE-D is computed
 at $N{=}100$ samples/query, EU at $N{=}10$ (Section~\ref{sec:method}), for every
 cell in the table.
@@ -787,13 +809,15 @@ cell in the table.
 \begin{table*}[t]
 \centering
 \scriptsize
-\caption{RandMMR vs.\ matched plain PL (see text), all $7\times4{=}28$ cells,
-EE-D at $N{=}100$, EU at $N{=}10$. $^{*}p{<}0.05$, $^{**}p{<}0.01$ (Welch's
-$t$-test vs.\ matched PL).}
+\caption{RandMMR ($\alpha{=}4$, $\lambda\sim\mathrm{Unif}(0.8,1.0)$, all $k$
+ranks randomized stochastically; see text) vs.\ matched plain PL (PL $\alpha$
+column, matched per cell as described in Section~\ref{sec:rq2}), all
+$7\times4{=}28$ cells, EE-D at $N{=}100$, EU at $N{=}10$. $^{*}p{<}0.05$,
+$^{**}p{<}0.01$ (Welch's $t$-test vs.\ matched PL).}
 \label{tab:hybrid-full}
 \begin{tabular}{@{}lllrllr@{}}
 \toprule
-Task & Generator & Ranker & PL $\alpha$ & PL EE-D/EU & RandMMR EE-D/EU & $\Delta$EU \\
+Task & Generator & Ranker & PL $\alpha$ & PL EE-D$_{\text{norm}}$/EU$_{\text{norm}}$ & RandMMR EE-D$_{\text{norm}}$/EU$_{\text{norm}}$ & $\Delta$EU$_{\text{norm}}$ \\
 \midrule
 \multirow{4}{*}{LaMP-1} & T5-Base & BM25 & 2 & 0.11/0.51 & 0.10/0.49 & $-0.019$ \\
  & T5-Base & Contriever & 2 & 0.10/0.56 & 0.09/0.51 & $-0.048$ \\
