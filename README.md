@@ -29,6 +29,17 @@ pip install -r requirements.txt
 python -m ipykernel install --user --name fair-rag --display-name "Fair-RAG (.venv)"
 ```
 
+> **Security note on pinned versions.** `requirements.txt` deliberately pins the
+> library versions the paper's results were produced with (`torch==2.1.2`,
+> `transformers==4.36.2`, `sentence-transformers==2.2.2`, `langchain==0.1.1` and
+> friends). These versions have published security advisories, chiefly unsafe
+> deserialization when loading model checkpoints or pickles, and path-traversal or
+> DoS bugs in LangChain document loaders. They are kept for reproducibility. When
+> using this environment, only load models from trusted sources (e.g. the official
+> Hugging Face checkpoints referenced here), don't point loaders at untrusted files
+> or URLs, and don't expose it as a network service. For new work that doesn't need
+> exact reproduction, upgrade to current releases.
+
 ### 2. Get the data
 Pre-built LaMP utility-label test collections ship as zip archives under `data/` —
 unzip the one(s) you need:
